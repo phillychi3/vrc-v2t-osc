@@ -4,11 +4,16 @@ version = "0.1.0"
 description = ""
 authors = ["phillychi3 <phillychi3@gmail.com>"]
 readme = "README.md"
+package-mode = false
 
 [tool.poetry.dependencies]
 python = "^3.12"
 python-osc = "^1.9.3"
 pyaudio = "^0.2.14"
+textual = "^3.1.0"
+textual-dev = "^1.7.0"
+numpy = "^2.2.4"
+openai-whisper = "^20240930"
 
 
 [build-system]
