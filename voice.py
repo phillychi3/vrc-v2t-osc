@@ -5,10 +5,11 @@ import numpy as np
 import queue
 import threading
 from typing import Callable, Optional
+import torch
 
 
 class VoiceStream:
-    def __init__(self, model_name: str = "base"):
+    def __init__(self, model_name: str = "base", language: str = "en"):
         self.chunk = 1024
         self.format = pyaudio.paInt16
         self.channels = 1
@@ -25,6 +26,25 @@ class VoiceStream:
         self.model = whisper.load_model(model_name)
         self.callback = None
         self.stream_thread = None
+        self.language = language
+
+        torch.set_num_threads(1)
+        self.vad_model, utils = torch.hub.load(
+            repo_or_dir="snakers4/silero-vad", model="silero_vad"
+        )
+        self.get_speech_timestamps = utils[0]
+
+        self.get_speech_timestamps = utils[0]
+
+        self.vad_threshold = 0.5
+        self.min_silence_ms = 500
+
+        self.audio_buffer = []
+        self.buffer_max_len = int(self.rate * 10)
+        self.silence_counter = 0
+        self.min_silence_frames = int(
+            self.min_silence_ms * self.rate / 1000 / self.chunk
+        )
 
     def start_stream(self, callback: Optional[Callable[[str], None]] = None):
         self.callback = callback
@@ -46,24 +66,41 @@ class VoiceStream:
             try:
                 audio_data = self.stream.read(self.chunk, exception_on_overflow=False)
                 audio_array = np.frombuffer(audio_data, dtype=np.int16)
-                volume = np.abs(audio_array).mean()
+                self.audio_buffer.extend(audio_array)
 
-                if volume > self.silence_threshold:
-                    self.silence_frames = 0
-                    if not self.is_speaking:
-                        self.is_speaking = True
-                        self.frames = []
-                    self.frames.append(audio_data)
-                else:
-                    # 靜音
-                    if self.is_speaking:
-                        self.silence_frames += 1
+                if len(self.audio_buffer) >= self.rate // 2:
+                    tensor_data = torch.FloatTensor(self.audio_buffer) / 32768.0
+                    speech_timestamps = self.get_speech_timestamps(
+                        tensor_data,
+                        self.vad_model,
+                        return_seconds=False,
+                    )
+
+                    if speech_timestamps:
+                        if not self.is_speaking:
+                            self.is_speaking = True
+                            self.frames = []
+                            print("語音開始")
+                            self.frames.append(audio_data)
+                        self.silence_counter = 0
                         self.frames.append(audio_data)
-                        if self.silence_frames > self.min_silence_frames:
-                            self.is_speaking = False
-                            if self.frames and len(self.frames) > 5:
-                                self.audio_queue.put(b"".join(self.frames))
+                    else:
+                        if self.is_speaking:
+                            self.silence_counter += 1
+                            self.frames.append(audio_data)
+
+                            actual_silence_sec = (
+                                self.silence_counter * self.chunk
+                            ) / self.rate
+                            if actual_silence_sec > 0.5:
+                                self.is_speaking = False
+                                print(f"語音結束 (靜音 {actual_silence_sec:.2f} 秒)")
+                                if len(self.frames) > 2:
+                                    self.audio_queue.put(b"".join(self.frames))
                                 self.frames = []
+
+                    self.audio_buffer = self.audio_buffer[-self.rate // 2 :]
+
             except Exception as e:
                 print(f"讀取聲音出錯: {e}")
 
@@ -78,7 +115,8 @@ class VoiceStream:
                     )
                     loop = asyncio.get_running_loop()
                     result = await loop.run_in_executor(
-                        None, lambda: self.model.transcribe(audio_np)
+                        None,
+                        lambda: self.model.transcribe(audio_np, language=self.language),
                     )
 
                     text = result["text"].strip()
@@ -103,7 +141,7 @@ async def main():
     def on_speech_detected(text):
         print(f"偵測到語音: {text}")
 
-    voice = VoiceStream(model_name="tiny")
+    voice = VoiceStream(model_name="large-v3-turbo", language="zh")
     voice.start_stream(callback=on_speech_detected)
 
     try:

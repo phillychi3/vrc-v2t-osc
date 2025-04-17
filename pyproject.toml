@@ -14,7 +14,13 @@ textual = "^3.1.0"
 textual-dev = "^1.7.0"
 numpy = "^2.2.4"
 openai-whisper = "^20240930"
+torch = { version = "^2.1.0", source = "torch" }
+torchaudio = "^2.6.0"
 
+[[tool.poetry.source]]
+name = "torch"
+url = "https://download.pytorch.org/whl/cu126"
+priority = "supplemental"
 
 [build-system]
 requires = ["poetry-core"]
