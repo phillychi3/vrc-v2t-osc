@@ -1,7 +1,7 @@
 from textual import on
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
-from textual.widgets import Input, Header, Footer, Label, RichLog, Switch, Static
+from textual.widgets import Input, Header, Footer, RichLog, Switch, Static
 from textual.binding import Binding
 
 
@@ -26,14 +26,6 @@ class VoiceToTextApp(App):
         height: 100%;
     }
 
-    Label {
-        background: $boost;
-        color: $text;
-        padding: 1 2;
-        border-bottom: solid $primary;
-        text-align: center;
-        width: 100%;
-    }
 
     RichLog {
         background: $surface;
@@ -116,7 +108,6 @@ class VoiceToTextApp(App):
                     id="settings-panel",
                 ),
                 Vertical(
-                    Label("語音辨識"),
                     RichLog(id="speech-log", highlight=True, markup=True),
                     id="right-panel",
                 ),
