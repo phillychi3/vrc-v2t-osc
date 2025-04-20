@@ -16,6 +16,7 @@ numpy = "^2.2.4"
 openai-whisper = "^20240930"
 torch = { version = "^2.1.0", source = "torch" }
 torchaudio = { version = "^2.6.0", source = "torch" }
+transformers = "^4.51.3"
 
 [[tool.poetry.source]]
 name = "torch"

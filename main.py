@@ -5,6 +5,7 @@ from pythonosc import udp_client
 from queue import Queue
 from ui import VoiceToTextApp
 from voice import VoiceStream
+from emo import Emotion
 
 
 class OSC:
@@ -37,6 +38,13 @@ class OSC:
         except Exception as e:
             print(f"Error sending message: {e}")
 
+    def _change_face(self, face_id: int):
+        try:
+            self.client.send_message("/avatar/parameters/SYNC_EM_EMOTE", face_id)
+            print(f"Face changed to: {face_id}")
+        except Exception as e:
+            print(f"Error changing face: {e}")
+
     def send_message(self, message: str):
         """將消息添加到隊列中"""
         self.message_queue.put(message)
@@ -44,9 +52,13 @@ class OSC:
     def close(self):
         """關閉 OSC 客戶端"""
         self.running = False
-        if self.worker_thread.is_alive():
-            self.worker_thread.join()
-        self.loop.close()
+        if self.worker_thread and self.worker_thread.is_alive():
+            self.worker_thread.join(timeout=1.0)
+        try:
+            if self.loop and self.loop.is_running():
+                self.loop.call_soon_threadsafe(self.loop.stop)
+        except:  # noqa: E722
+            pass
 
 
 class VRChatVoiceToText:
@@ -58,11 +70,36 @@ class VRChatVoiceToText:
         self.voice = VoiceStream(model_name="large-v3-turbo", language="zh")
         self.running = True
         self.voice_task = None
+        try:
+            self.emotion_analyzer = Emotion()
+            self.emotion_loaded = True
+            print("情緒分析模型已載入")
+        except Exception as e:
+            self.emotion_loaded = False
+            print(f"載入情緒分析模型失敗: {e}")
+
+    def analyze_emotion(self, text):
+        """分析文本情緒並返回對應的表情ID"""
+        if not self.emotion_loaded or not self.app.emotion_enabled:
+            return None
+
+        try:
+            emotion = self.emotion_analyzer.predict(text)
+            return {"emotion": emotion, "face_id": emotion}
+        except Exception as e:
+            print(f"情緒分析出錯: {e}")
+            return None
 
     def on_speech_detected(self, text):
+        """處理語音辨識結果"""
         self.app.call_from_thread(self.app.add_speech_text, text)
+        emotion_result = self.analyze_emotion(text)
+
         if self.app.osc_enabled:
             self.osc.send_message(text)
+
+            if emotion_result and self.app.emotion_enabled:
+                self.osc._change_face(emotion_result["face_id"])
 
     def handle_text_input(self, text):
         """處理文字輸入"""
@@ -80,7 +117,14 @@ class VRChatVoiceToText:
         elif setting_name == "translation":
             pass
         elif setting_name == "emotion":
-            pass
+            if value and not self.emotion_loaded:
+                self.app.call_from_thread(
+                    self.app.add_system_message,
+                    "情緒分析模型未正確載入，此功能無法使用",
+                )
+                self.app.call_from_thread(self.app.disable_emotion_switch)
+            else:
+                print(f"情緒辨識已{'啟用' if value else '停用'}")
 
     async def run_voice_recognition(self):
         self.voice.start_stream(callback=self.on_speech_detected)
@@ -88,7 +132,10 @@ class VRChatVoiceToText:
         try:
             await self.voice.process_speech()
         except Exception as e:
-            print(f"語音識別發生錯誤: {e}")
+            self.app.call_from_thread(
+                self.app.add_error_message,
+                f"語音辨識出錯: {e}",
+            )
         finally:
             if self.voice:
                 self.voice.stop_stream()
@@ -106,10 +153,7 @@ class VRChatVoiceToText:
         self.voice_thread.start()
 
     def setup_ui_callbacks(self):
-        """設置 UI 回調"""
-
         self.app.on_input_submitted = self.handle_text_input
-
         self.app.on_settings_changed = self.handle_settings_changed
 
     def start(self):

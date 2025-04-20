@@ -74,7 +74,7 @@ class VoiceToTextApp(App):
         super().__init__(*args, **kwargs)
         self.osc_enabled = True
         self.translation_enabled = False
-        self.emotion_enabled = False
+        self.emotion_enabled = True
         self.on_settings_changed = None
         self.on_input_submitted = None
 
@@ -94,7 +94,7 @@ class VoiceToTextApp(App):
                         classes="settings-group",
                     ),
                     Horizontal(
-                        Static("情緒識別 (尚未實現)", classes="setting-label"),
+                        Static("情緒辨識", classes="setting-label"),
                         Switch(value=self.emotion_enabled, id="emotion-switch"),
                         classes="settings-group",
                     ),
@@ -146,7 +146,7 @@ class VoiceToTextApp(App):
             self.emotion_enabled = event.value
             self.notify_settings_changed("emotion", event.value)
             self.query_one("#speech-log").write(
-                f"[bold green]系統[/bold green]: 情緒識別已{'啟用' if event.value else '停用'} (尚未實現)"
+                f"[bold green]系統[/bold green]: 情緒辨識已{'啟用' if event.value else '停用'}"
             )
 
     def notify_settings_changed(self, setting_name, value):
@@ -168,3 +168,18 @@ class VoiceToTextApp(App):
     def add_speech_text(self, text: str) -> None:
         speech_log = self.query_one("#speech-log")
         speech_log.write(f"[bold yellow]語音[/bold yellow]: {text}")
+
+    def add_system_message(self, message: str) -> None:
+        """顯示系統訊息"""
+        speech_log = self.query_one("#speech-log")
+        speech_log.write(f"[bold green]系統[/bold green]: {message}")
+
+    def disable_emotion_switch(self) -> None:
+        """禁用情緒辨識開關"""
+        emotion_switch = self.query_one("#emotion-switch")
+        emotion_switch.value = False
+
+    def add_error_message(self, message: str) -> None:
+        """顯示錯誤訊息"""
+        speech_log = self.query_one("#speech-log")
+        speech_log.write(f"[bold red]錯誤[/bold red]: {message}")

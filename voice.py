@@ -146,8 +146,6 @@ class VoiceStream:
             wf.setframerate(self.rate)
             wf.writeframes(audio_data)
 
-        print(f"音頻樣本已保存至: {filename}")
-
     async def process_speech(self):
         while self.is_running:
             try:
@@ -183,7 +181,7 @@ class VoiceStream:
 
                 await asyncio.sleep(0.1)
             except Exception as e:
-                print(f"處理語音識別時出錯: {e}")
+                print(f"處理語音辨識時出錯: {e}")
                 await asyncio.sleep(1)
 
     def stop_stream(self):
