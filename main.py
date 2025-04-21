@@ -14,9 +14,7 @@ class OSC:
         self.running = True
         self.message_queue = Queue()
         self.loop = asyncio.new_event_loop()
-        self.worker_thread = threading.Thread(
-            target=self._process_messages, daemon=True
-        )
+        self.worker_thread = threading.Thread(target=self._process_messages, daemon=True)
         self.worker_thread.start()
 
     def _process_messages(self):
@@ -78,15 +76,8 @@ class VRChatVoiceToText:
     def init_emotion_analyzer(self):
         """初始化情緒分析，在後台載入模型"""
         try:
-            from emo import Emotion
-
             self.emotion_analyzer = Emotion(use_async=True)
-
-            print("情緒分析模型正在後台載入中...")
-
-            threading.Thread(
-                target=self._check_emotion_model_ready, daemon=True
-            ).start()
+            threading.Thread(target=self._check_emotion_model_ready, daemon=True).start()
         except Exception as e:
             print(f"初始化情緒分析模型失敗: {e}")
 
@@ -118,7 +109,7 @@ class VRChatVoiceToText:
 
         if not self.emotion_loaded and self.running:
             self.app.call_from_thread(
-                self.app.add_warning_message,
+                self.app.add_error_message,
                 "情緒分析模型載入時間過長",
             )
             self.app.call_from_thread(self.app.disable_emotion_switch)
@@ -146,20 +137,26 @@ class VRChatVoiceToText:
             self.osc.send_message(text)
 
     def _process_emotion_and_send(self, text):
-        """在獨立線程中處理情緒分析並發送結果"""
-        emotion_result = self.analyze_emotion(text)
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                emotion_result = loop.run_until_complete(self.analyze_emotion(text))
+                if self.app.osc_enabled:
+                    self.osc.send_message(text)
+                    if emotion_result and self.app.emotion_enabled:
+                        face_id = emotion_result["face_id"]
+                        self.osc._change_face(face_id)
+            finally:
+                loop.close()
 
-        if self.app.osc_enabled:
-            self.osc.send_message(text)
-            if emotion_result and self.app.emotion_enabled:
-                self.osc._change_face(emotion_result["face_id"])
+        except Exception as e:
+            print(f"發送消息時出錯: {e}")
 
     def handle_text_input(self, text):
         """處理文字輸入"""
         if self.app.osc_enabled:
             self.osc.send_message(text)
-        else:
-            print(f"OSC 已停用，不發送消息: {text}")
 
     def handle_settings_changed(self, setting_name, value):
         """處理設定變更"""
@@ -230,7 +227,6 @@ class VRChatVoiceToText:
                 asyncio.set_event_loop(temp_loop)
                 try:
                     if not self.voice_task.done():
-                        # 安全地取消任務
                         self.voice_task.cancel()
                 except Exception as e:
                     print(f"取消語音任務發生錯誤: {e}")
@@ -247,7 +243,6 @@ class VRChatVoiceToText:
             if self.voice_thread.is_alive():
                 print("語音線程未在預期時間內結束")
 
-
         if self.osc:
             print("正在關閉OSC服務...")
             try:
@@ -255,7 +250,6 @@ class VRChatVoiceToText:
                 self.osc.close()
             except Exception as e:
                 print(f"關閉OSC時發生錯誤: {e}")
-
 
         print("正在關閉UI...")
         self.app.exit()
