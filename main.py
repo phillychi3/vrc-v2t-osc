@@ -40,7 +40,7 @@ class OSC:
 
     def _change_face(self, face_id: int):
         try:
-            self.client.send_message("/avatar/parameters/SYNC_EM_EMOTE", face_id)
+            self.client.send_message("/avatar/parameters/v2t_sync_emo", face_id)
             print(f"Face changed to: {face_id}")
         except Exception as e:
             print(f"Error changing face: {e}")
@@ -163,11 +163,51 @@ class VRChatVoiceToText:
         self.app.run()
 
     def exit_app(self):
+        """安全關閉應用程式的所有部分"""
+        print("正在關閉應用程式...")
+
         if self.voice:
+            print("正在停止語音服務...")
             self.voice.is_running = False
+
+            if hasattr(self, "voice_task") and self.voice_task:
+                print("正在取消語音處理任務...")
+
+                temp_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(temp_loop)
+                try:
+                    if not self.voice_task.done():
+                        # 安全地取消任務
+                        self.voice_task.cancel()
+                except Exception as e:
+                    print(f"取消語音任務發生錯誤: {e}")
+                finally:
+                    temp_loop.close()
+
+        if (
+            hasattr(self, "voice_thread")
+            and self.voice_thread
+            and self.voice_thread.is_alive()
+        ):
+            print("等待語音線程結束...")
+            self.voice_thread.join(timeout=2.0)
+            if self.voice_thread.is_alive():
+                print("語音線程未在預期時間內結束")
+
+
         if self.osc:
-            self.osc.close()
+            print("正在關閉OSC服務...")
+            try:
+                self.osc.running = False
+                self.osc.close()
+            except Exception as e:
+                print(f"關閉OSC時發生錯誤: {e}")
+
+
+        print("正在關閉UI...")
         self.app.exit()
+
+        print("程式已完全關閉")
 
 
 def main():
