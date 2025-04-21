@@ -70,21 +70,65 @@ class VRChatVoiceToText:
         self.voice = VoiceStream(model_name="large-v3-turbo", language="zh")
         self.running = True
         self.voice_task = None
-        try:
-            self.emotion_analyzer = Emotion()
-            self.emotion_loaded = True
-            print("情緒分析模型已載入")
-        except Exception as e:
-            self.emotion_loaded = False
-            print(f"載入情緒分析模型失敗: {e}")
+        self.emotion_loaded = False
+        self.emotion_analyzer = None
 
-    def analyze_emotion(self, text):
-        """分析文本情緒並返回對應的表情ID"""
+        self.init_emotion_analyzer()
+
+    def init_emotion_analyzer(self):
+        """初始化情緒分析，在後台載入模型"""
+        try:
+            from emo import Emotion
+
+            self.emotion_analyzer = Emotion(use_async=True)
+
+            print("情緒分析模型正在後台載入中...")
+
+            threading.Thread(
+                target=self._check_emotion_model_ready, daemon=True
+            ).start()
+        except Exception as e:
+            print(f"初始化情緒分析模型失敗: {e}")
+
+    def _check_emotion_model_ready(self):
+        """定期檢查模型是否載入完成"""
+        check_interval = 2
+        max_checks = 30
+        checks = 0
+
+        while checks < max_checks and self.running:
+            if self.emotion_analyzer and self.emotion_analyzer.is_ready():
+                self.emotion_loaded = True
+                self.app.call_from_thread(
+                    self.app.add_system_message,
+                    "情緒分析模型載入完成",
+                )
+                return
+
+            if self.emotion_analyzer and self.emotion_analyzer.get_loading_error():
+                self.app.call_from_thread(
+                    self.app.add_error_message,
+                    f"情緒分析模型載入失敗: {self.emotion_analyzer.get_loading_error()}",
+                )
+                self.app.call_from_thread(self.app.disable_emotion_switch)
+                return
+
+            time.sleep(check_interval)
+            checks += 1
+
+        if not self.emotion_loaded and self.running:
+            self.app.call_from_thread(
+                self.app.add_warning_message,
+                "情緒分析模型載入時間過長",
+            )
+            self.app.call_from_thread(self.app.disable_emotion_switch)
+
+    async def analyze_emotion(self, text):
         if not self.emotion_loaded or not self.app.emotion_enabled:
             return None
 
         try:
-            emotion = self.emotion_analyzer.predict(text)
+            emotion = await self.emotion_analyzer.predict_async(text)
             return {"emotion": emotion, "face_id": emotion}
         except Exception as e:
             print(f"情緒分析出錯: {e}")
@@ -93,11 +137,20 @@ class VRChatVoiceToText:
     def on_speech_detected(self, text):
         """處理語音辨識結果"""
         self.app.call_from_thread(self.app.add_speech_text, text)
+
+        if self.app.emotion_enabled and self.emotion_loaded:
+            threading.Thread(
+                target=self._process_emotion_and_send, args=(text,), daemon=True
+            ).start()
+        elif self.app.osc_enabled:
+            self.osc.send_message(text)
+
+    def _process_emotion_and_send(self, text):
+        """在獨立線程中處理情緒分析並發送結果"""
         emotion_result = self.analyze_emotion(text)
 
         if self.app.osc_enabled:
             self.osc.send_message(text)
-
             if emotion_result and self.app.emotion_enabled:
                 self.osc._change_face(emotion_result["face_id"])
 
