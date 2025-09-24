@@ -64,7 +64,7 @@ class VRChatVoiceToText:
         self.osc = OSC()
         self.app = VoiceToTextApp()
         self.app.BINDINGS.append(("ctrl+q", "exit_app", "退出應用"))
-        self.app.action_exit_app = self.exit_app
+        self.app.action_exit_app = self.exit_app  # type: ignore
         self.voice = VoiceStream(model_name="large-v3-turbo", language="zh")
         self.running = True
         self.voice_task = None
@@ -203,8 +203,8 @@ class VRChatVoiceToText:
         self.voice_thread.start()
 
     def setup_ui_callbacks(self):
-        self.app.on_input_submitted = self.handle_text_input
-        self.app.on_settings_changed = self.handle_settings_changed
+        self.app.on_input_submitted = self.handle_text_input  # type: ignore
+        self.app.on_settings_changed = self.handle_settings_changed  # type: ignore
 
     def start(self):
         """啟動整個應用程式"""

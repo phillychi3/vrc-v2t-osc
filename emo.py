@@ -1,5 +1,5 @@
 import asyncio
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from transformers import AutoTokenizer, AutoModelForSequenceClassification  # type: ignore
 import torch
 from concurrent.futures import ThreadPoolExecutor
 
@@ -48,7 +48,7 @@ class Emotion:
         """Return any error that occurred during loading"""
         return self.loading_error
 
-    def predict(self, text):
+    def predict(self, text) -> int:
         """Synchronously predict emotion from text"""
         if not self.model_loaded:
             raise RuntimeError("情緒分析模型尚未載入完成")
@@ -58,7 +58,7 @@ class Emotion:
         ).to(self.device)
         with torch.no_grad():
             outputs = self.model(**inputs)
-        predicted_class = torch.argmax(outputs.logits).item()
+        predicted_class = int(torch.argmax(outputs.logits).item())
         return predicted_class
 
     async def predict_async(self, text):
