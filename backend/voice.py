@@ -222,6 +222,7 @@ class VoiceService:
             import torch
             import whisper
             from silero_vad import get_speech_timestamps, load_silero_vad
+
             torch.set_default_device("cpu")
         except Exception as exc:
             logging.exception("Failed to load speech runtime")
@@ -274,9 +275,7 @@ class VoiceService:
                         "maxInputChannels": channels,
                         "isDefault": index
                         == (
-                            default_speaker_index
-                            if is_loopback
-                            else default_input_index
+                            default_speaker_index if is_loopback else default_input_index
                         ),
                         "source": "speaker" if is_loopback else "microphone",
                     }
@@ -592,9 +591,7 @@ class VoiceService:
             return session is not None and session.session_id == session_id
 
     @staticmethod
-    def _close_capture(
-        session: _CaptureSession, *, join_timeout: float = 2.0
-    ) -> None:
+    def _close_capture(session: _CaptureSession, *, join_timeout: float = 2.0) -> None:
         thread = session.thread
         if thread and thread is not threading.current_thread():
             # The processing thread only waits on its frame queue, so it retires

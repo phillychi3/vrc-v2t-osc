@@ -23,9 +23,7 @@ class VoiceProtocol(Protocol):
     def list_devices(self) -> list[dict[str, object]]: ...
     def start(self, device_id: str, source: str = "microphone") -> None: ...
     def stop(self, source: str | None = None) -> None: ...
-    def set_languages(
-        self, microphone_language: str, speaker_language: str
-    ) -> None: ...
+    def set_languages(self, microphone_language: str, speaker_language: str) -> None: ...
     def close(self) -> None: ...
 
 
@@ -448,8 +446,11 @@ class BackendService:
             "model.status",
             {"model": "speech", "status": status, "device": device},
         )
-        if (status == "ready" and self._settings["audio"]["autoStart"]
-                and not self._suppress_auto_start):
+        if (
+            status == "ready"
+            and self._settings["audio"]["autoStart"]
+            and not self._suppress_auto_start
+        ):
             try:
                 self._start_recording(
                     {
@@ -546,8 +547,11 @@ class BackendService:
         utterance_id = context.get("utteranceId")
         text = result.get("text")
         with self._lock:
-            if (isinstance(utterance_id, str) and isinstance(text, str)
-                    and self._translation_context_active(context)):
+            if (
+                isinstance(utterance_id, str)
+                and isinstance(text, str)
+                and self._translation_context_active(context)
+            ):
                 self._send_transcript_to_osc(utterance_id, text)
 
     def _on_translation_status(self, provider: str, status: str) -> None:
@@ -567,8 +571,11 @@ class BackendService:
             utterance_id = context.get("utteranceId")
             original_text = context.get("originalText")
             with self._lock:
-                if (isinstance(utterance_id, str) and isinstance(original_text, str)
-                        and self._translation_context_active(context)):
+                if (
+                    isinstance(utterance_id, str)
+                    and isinstance(original_text, str)
+                    and self._translation_context_active(context)
+                ):
                     self._send_transcript_to_osc(utterance_id, original_text)
 
     def _translation_context_active(self, context: dict[str, Any]) -> bool:

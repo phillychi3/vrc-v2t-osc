@@ -28,9 +28,7 @@ class OscTests(unittest.TestCase):
     def test_text_address_and_argument_types(self) -> None:
         self.assertTrue(self.osc.send_text("你好"))
         self.assertTrue(self.client.received.wait(1))
-        self.assertEqual(
-            self.client.messages, [("/chatbox/input", ["你好", True])]
-        )
+        self.assertEqual(self.client.messages, [("/chatbox/input", ["你好", True])])
 
     def test_face_parameter(self) -> None:
         self.assertTrue(self.osc.set_face(2))
@@ -59,8 +57,7 @@ class OscTests(unittest.TestCase):
                 self.assertTrue(sender.send_text("中文 UDP"))
                 self.assertTrue(sender.set_face(2))
                 messages = [
-                    OscPacket(receiver.recv(4096)).messages[0].message
-                    for _ in range(2)
+                    OscPacket(receiver.recv(4096)).messages[0].message for _ in range(2)
                 ]
                 self.assertEqual(messages[0].address, "/chatbox/input")
                 self.assertEqual(messages[0].params, ["中文 UDP", True])

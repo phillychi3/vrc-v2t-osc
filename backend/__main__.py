@@ -99,6 +99,7 @@ def main() -> int:
 
 def self_test(*, speech_model: bool = False) -> int:
     """Load packaged native/runtime dependencies without downloading model weights."""
+
     def stage(name: str) -> None:
         sys.stderr.write(f"[self-test] {name}\n")
         sys.stderr.flush()
@@ -108,6 +109,7 @@ def self_test(*, speech_model: bool = False) -> int:
 
     stage("pydub-pcm")
     from backend.audio import normalize_audio
+
     converted, _ = normalize_audio(bytes(480 * 4), 2, 48000, None)
     assert len(converted) == 160 * 2
 
@@ -138,7 +140,9 @@ def self_test(*, speech_model: bool = False) -> int:
     if speech_model:
         stage("whisper-tiny-inference")
         model = whisper.load_model("tiny", device="cpu")
-        result = model.transcribe(np.zeros(16000, dtype=np.float32), fp16=False, language="en")
+        result = model.transcribe(
+            np.zeros(16000, dtype=np.float32), fp16=False, language="en"
+        )
         assert isinstance(result["text"], str)
     sys.stdout.write('{"ok":true,"torch":"' + torch.__version__ + '"}\n')
     return 0

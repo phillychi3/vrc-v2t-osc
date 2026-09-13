@@ -76,9 +76,10 @@ def response_error(
 
 
 def encode_message(message: dict[str, Any]) -> bytes:
-    encoded = json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode(
-        "utf-8"
-    ) + b"\n"
+    encoded = (
+        json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        + b"\n"
+    )
     if len(encoded) > MAX_LINE_BYTES:
         raise ProtocolError("LINE_TOO_LARGE", "協定訊息超過 1 MiB")
     return encoded

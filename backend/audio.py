@@ -1,5 +1,3 @@
-"""Bounded, phase-continuous PCM conversion using pydub (no FFmpeg needed)."""
-
 from dataclasses import dataclass
 from math import gcd
 
@@ -35,12 +33,14 @@ def normalize_audio(
         state.pending = pending
         return b"", state
     combined = state.history + pending[:usable]
-    converted = AudioSegment(
-        data=combined, sample_width=2, frame_rate=input_rate, channels=1
-    ).set_frame_rate(16000).raw_data
-    output = converted[state.emitted * 2:]
+    converted = (
+        AudioSegment(data=combined, sample_width=2, frame_rate=input_rate, channels=1)
+        .set_frame_rate(16000)
+        .raw_data
+    )
+    output = converted[state.emitted * 2 :]
     discarded_frames = len(combined) // 2 - period
     state.emitted = len(converted) // 2 - discarded_frames * 16000 // input_rate
-    state.history = combined[-period * 2:]
+    state.history = combined[-period * 2 :]
     state.pending = pending[usable:]
     return output, state

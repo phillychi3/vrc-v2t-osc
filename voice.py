@@ -55,9 +55,7 @@ class VoiceStream:
         self.audio_buffer = []
         self.buffer_max_len = int(self.rate * 15)
         self.silence_counter = 0
-        self.min_silence_frames = int(
-            self.min_silence_ms * self.rate / 1000 / self.chunk
-        )
+        self.min_silence_frames = int(self.min_silence_ms * self.rate / 1000 / self.chunk)
 
         self.recent_transcriptions = []
         self.max_context_length = 5

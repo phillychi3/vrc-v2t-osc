@@ -23,10 +23,16 @@ class BackendProcessTests(unittest.TestCase):
                 process = subprocess.run(
                     [sys.executable, "-u", "-m", "tests.fixtures.backend_protocol"],
                     cwd=Path(__file__).resolve().parents[1],
-                    env={**os.environ, "HF_HUB_OFFLINE": "1",
-                         "HF_HOME": str(Path(directory) / "huggingface"),
-                         "XDG_CACHE_HOME": str(Path(directory) / "cache")},
-                    input=input_bytes, capture_output=True, check=False, timeout=15,
+                    env={
+                        **os.environ,
+                        "HF_HUB_OFFLINE": "1",
+                        "HF_HOME": str(Path(directory) / "huggingface"),
+                        "XDG_CACHE_HOME": str(Path(directory) / "cache"),
+                    },
+                    input=input_bytes,
+                    capture_output=True,
+                    check=False,
+                    timeout=15,
                 )
             except subprocess.TimeoutExpired as exc:
                 self.fail(
@@ -34,18 +40,31 @@ class BackendProcessTests(unittest.TestCase):
                     f"stdout: {(exc.stdout or b'').decode('utf-8', errors='replace')}\n"
                     f"stderr: {(exc.stderr or b'').decode('utf-8', errors='replace')}"
                 )
-            self.assertEqual(process.returncode, 0, process.stderr.decode("utf-8", errors="replace"))
-            self.assertEqual(list(Path(directory).rglob("*")), [], "Protocol test wrote model/data files")
+            self.assertEqual(
+                process.returncode, 0, process.stderr.decode("utf-8", errors="replace")
+            )
+            self.assertEqual(
+                list(Path(directory).rglob("*")),
+                [],
+                "Protocol test wrote model/data files",
+            )
             return process
 
     def test_stdin_eof_exits_without_shutdown_command(self) -> None:
         self.run_protocol([])
 
     def test_stdin_eof_closes_initialized_services(self) -> None:
-        process = self.run_protocol([{
-            "v": 1, "type": "request", "id": "init", "method": "system.initialize",
-            "params": {"settings": default_settings()},
-        }])
+        process = self.run_protocol(
+            [
+                {
+                    "v": 1,
+                    "type": "request",
+                    "id": "init",
+                    "method": "system.initialize",
+                    "params": {"settings": default_settings()},
+                }
+            ]
+        )
         messages = [json.loads(line) for line in process.stdout.splitlines()]
         response = next(message for message in messages if message.get("id") == "init")
         self.assertTrue(response["ok"])
@@ -79,8 +98,12 @@ class BackendProcessTests(unittest.TestCase):
         responses = {m["id"]: m for m in messages if m["type"] == "response"}
         self.assertTrue(responses["init"]["ok"])
         self.assertEqual(responses["state"]["result"]["backend"], "ready")
-        self.assertEqual(responses["state"]["result"]["models"]["speech"]["status"], "ready")
-        self.assertEqual(responses["state"]["result"]["models"]["emotion"]["status"], "ready")
+        self.assertEqual(
+            responses["state"]["result"]["models"]["speech"]["status"], "ready"
+        )
+        self.assertEqual(
+            responses["state"]["result"]["models"]["emotion"]["status"], "ready"
+        )
         self.assertEqual(responses["stop"]["result"]["state"], "stopped")
         self.assertTrue(
             all(line.startswith(b"{") for line in process.stdout.splitlines())

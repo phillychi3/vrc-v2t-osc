@@ -1,13 +1,15 @@
 {
 	"name": "vrc2t",
 	"private": true,
-	"version": "0.0.1",
+	"version": "0.1.0",
 	"type": "module",
 	"main": "build/electron/main.cjs",
 	"packageManager": "pnpm@11.26.0",
 	"scripts": {
-		"dev": "concurrently -k -n renderer,electron -c cyan,magenta \"vite dev\" \"pnpm run build:electron && wait-on -t 100000 http-get://127.0.0.1:5173/ && electron .\"",
-		"build": "vite build && pnpm run build:electron",
+		"version:sync": "python scripts/sync-version.py",
+		"version:check": "python scripts/sync-version.py --check",
+		"dev": "pnpm run version:sync && concurrently -k -n renderer,electron -c cyan,magenta \"vite dev\" \"pnpm run build:electron && wait-on -t 100000 http-get://127.0.0.1:5173/ && electron .\"",
+		"build": "pnpm run version:sync && vite build && pnpm run build:electron",
 		"build:backend": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-backend.ps1",
 		"build:electron": "vite build --config vite.electron.config.ts && vite build --config vite.preload.config.ts",
 		"dist": "pnpm run build && pnpm run build:backend && electron-builder",

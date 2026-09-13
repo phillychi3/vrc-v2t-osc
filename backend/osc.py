@@ -42,9 +42,7 @@ class OscService:
         self._queue: queue.Queue[tuple[str, Any]] = queue.Queue(maxsize=max_queue)
         self._lock = threading.Lock()
         self._closed = threading.Event()
-        self._thread = threading.Thread(
-            target=self._run, name="osc-sender", daemon=True
-        )
+        self._thread = threading.Thread(target=self._run, name="osc-sender", daemon=True)
         self._thread.start()
 
     @property

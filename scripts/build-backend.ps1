@@ -4,6 +4,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
+python (Join-Path $PSScriptRoot 'sync-version.py')
+if ($LASTEXITCODE -ne 0) { throw 'Failed to synchronize application version' }
 $environmentRoot = Join-Path $projectRoot 'build/package-env'
 $packagePython = Join-Path $environmentRoot 'Scripts/python.exe'
 

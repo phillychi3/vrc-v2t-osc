@@ -11,7 +11,11 @@ class NoModelImports(importlib.abc.MetaPathFinder):
 
     def find_spec(self, fullname, path=None, target=None):
         if fullname.split(".")[0] in {
-            "torch", "whisper", "silero_vad", "transformers", "pyaudiowpatch",
+            "torch",
+            "whisper",
+            "silero_vad",
+            "transformers",
+            "pyaudiowpatch",
         }:
             self.attempts.append(fullname)
             raise AssertionError(f"Protocol test attempted to import {fullname}")
@@ -28,9 +32,16 @@ def main():
             service._on_model_status("ready", "cpu")
 
         with (
-            patch.object(entry.VoiceService, "load_models", autospec=True, side_effect=ready),
-            patch.object(entry.EmotionService, "load_model", autospec=True, side_effect=ready),
-            patch("socket.socket.connect", side_effect=AssertionError("Network access in protocol test")) as connect,
+            patch.object(
+                entry.VoiceService, "load_models", autospec=True, side_effect=ready
+            ),
+            patch.object(
+                entry.EmotionService, "load_model", autospec=True, side_effect=ready
+            ),
+            patch(
+                "socket.socket.connect",
+                side_effect=AssertionError("Network access in protocol test"),
+            ) as connect,
         ):
             result = entry.main()
             connect.assert_not_called()

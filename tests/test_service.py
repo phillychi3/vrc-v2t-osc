@@ -170,18 +170,29 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "NOT_INITIALIZED")
 
     def test_restart_suppresses_auto_recording_without_changing_preference(self) -> None:
-        service = BackendService(lambda *_args: None, voice_factory=FakeVoice,
-                                 osc_factory=FakeOsc)
+        service = BackendService(
+            lambda *_args: None, voice_factory=FakeVoice, osc_factory=FakeOsc
+        )
         self.addCleanup(service.close)
         settings = default_settings()
         settings["audio"]["autoStart"] = True
-        service.handle(Request("init", "system.initialize", {
-            "settings": settings, "dataPath": "C:/data", "suppressAutoStart": True,
-        }))
+        service.handle(
+            Request(
+                "init",
+                "system.initialize",
+                {
+                    "settings": settings,
+                    "dataPath": "C:/data",
+                    "suppressAutoStart": True,
+                },
+            )
+        )
         service._on_speech_model_status("ready", "cpu")
         snapshot = service.handle(Request("state", "system.getState", {}))
         self.assertTrue(snapshot["settings"]["audio"]["autoStart"])
-        self.assertEqual(snapshot["recordings"], {"microphone": "idle", "speaker": "idle"})
+        self.assertEqual(
+            snapshot["recordings"], {"microphone": "idle", "speaker": "idle"}
+        )
 
     def test_initialize_emits_ordered_session_events(self) -> None:
         state = self.initialize()
@@ -467,13 +478,7 @@ class ServiceTests(unittest.TestCase):
             Request(
                 "translation-model",
                 "settings.update",
-                {
-                    "patch": {
-                        "translation": {
-                            "model": "facebook/nllb-200-distilled-1.3B"
-                        }
-                    }
-                },
+                {"patch": {"translation": {"model": "facebook/nllb-200-distilled-1.3B"}}},
             )
         )
         self.assertEqual(translations[0].invalidated, ["transformers"])
@@ -512,9 +517,16 @@ class ServiceTests(unittest.TestCase):
         self.addCleanup(service.close)
         settings = default_settings()
         settings["translation"]["enabled"] = True
-        service.handle(Request("init", "system.initialize", {
-            "settings": settings, "dataPath": "C:/data",
-        }))
+        service.handle(
+            Request(
+                "init",
+                "system.initialize",
+                {
+                    "settings": settings,
+                    "dataPath": "C:/data",
+                },
+            )
+        )
         for source in ("microphone", "speaker"):
             service.handle(Request("start", "recording.start", {"source": source}))
         service._on_voice_transcript("舊麥克風", "voice")
@@ -568,7 +580,8 @@ class ServiceTests(unittest.TestCase):
             event for event in self.events if event["event"] == "translation.result"
         ]
         self.assertEqual(
-            result_events[-1]["data"]["context"]["source"], "voice"  # type: ignore[index]
+            result_events[-1]["data"]["context"]["source"],
+            "voice",  # type: ignore[index]
         )
         service.close()
 

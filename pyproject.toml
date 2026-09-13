@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "vrc-v2t-osc"
+name = "vrc2t"
 version = "0.1.0"
 description = ""
 authors = ["phillychi3 <phillychi3@gmail.com>"]
