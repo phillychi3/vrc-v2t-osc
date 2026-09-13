@@ -1,0 +1,17 @@
+# Package Managers
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
+.pnpm-store
+node_modules
+build
+release
+.venv
+.ruff_cache
+.pytest_cache
+**/__pycache__
+.vscode
+*.md
+*.py
+poetry.lock
+pyproject.toml

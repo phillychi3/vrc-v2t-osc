@@ -1,0 +1,23 @@
+appId: com.phillychi3.vrc-v2t-osc
+productName: VRC V2T OSC
+directories:
+  output: release
+  buildResources: static
+files:
+  - build/electron/**/*
+  - build/renderer/**/*
+  - package.json
+extraResources:
+  - from: build/python/vrc-v2t-backend
+    to: backend
+    filter:
+      - '**/*'
+asar: true
+win:
+  target: nsis
+mac:
+  target: dmg
+  category: public.app-category.developer-tools
+linux:
+  target: AppImage
+  category: Utility

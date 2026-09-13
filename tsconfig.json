@@ -1,0 +1,31 @@
+{
+	// Covers the whole of `electron/src/` — renderer, main, preload and shared —
+	// plus the Vite configs and the Node test suite.
+	"compilerOptions": {
+		"target": "esnext",
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"lib": ["esnext", "DOM", "DOM.Iterable"],
+		"types": ["node", "vite/client", "unocss/vite"],
+		"paths": {
+			"$lib": ["./electron/src/renderer/lib"],
+			"$lib/*": ["./electron/src/renderer/lib/*"],
+			"$shared": ["./electron/src/shared"],
+			"$shared/*": ["./electron/src/shared/*"]
+		},
+		"allowJs": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"isolatedModules": true,
+		"noEmit": true,
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"sourceMap": true,
+		"strict": true,
+		"verbatimModuleSyntax": true
+	},
+	// The `.mjs` test files are deliberately left out: they are plain Node test
+	// scripts and were never covered by the previous SvelteKit-generated config.
+	"include": ["electron/src/**/*.ts", "electron/src/**/*.svelte", "*.config.ts", "*.config.js"],
+	"exclude": ["node_modules", "build", "release", "dist"]
+}

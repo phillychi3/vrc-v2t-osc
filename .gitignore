@@ -1,2 +1,35 @@
 .ruff_cache
+.venv
 **/__pycache__
+node_modules
+.pnpm-store
+.pnpm-store
+
+# Output
+.output
+.vercel
+.netlify
+.wrangler
+/build
+/dist
+/release
+
+# Caches
+.turbo
+.pytest_cache
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+.svelte-check
+/docs
