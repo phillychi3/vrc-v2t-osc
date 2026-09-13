@@ -33,6 +33,12 @@ def main() -> int:
     assert dependency_result["ok"] is True
     assert "+cpu" in dependency_result["torch"]
 
+    # This is the real-model integration tier. Keep it small and explicit;
+    # the regular protocol tests use a fixture and never load/download models.
+    settings = default_settings()
+    settings["speech"]["model"] = "tiny"
+    settings["emotion"]["enabled"] = False
+    settings["osc"]["enabled"] = False
     with tempfile.TemporaryDirectory(prefix="vrc-v2t-packaged-") as data_path:
         requests = [
             {
@@ -41,7 +47,7 @@ def main() -> int:
                 "id": "init",
                 "method": "system.initialize",
                 "params": {
-                    "settings": default_settings(),
+                    "settings": settings,
                     "dataPath": data_path,
                 },
             },
@@ -82,6 +88,7 @@ def main() -> int:
         if message.get("type") == "response"
     }
     assert responses["init"]["ok"] is True
+    assert responses["init"]["result"]["models"]["speech"]["status"] == "ready"
     assert responses["providers"]["ok"] is True
     assert {item["id"] for item in responses["providers"]["result"]["providers"]} == {
         "transformers",
