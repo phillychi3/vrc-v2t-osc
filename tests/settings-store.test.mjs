@@ -10,6 +10,7 @@ test('uses defaults when settings.json does not exist', async (context) => {
 	const settings = await new SettingsStore(directory).load()
 
 	assert.equal(settings.schemaVersion, 1)
+	assert.equal(settings.speech.model, 'auto')
 	assert.equal(settings.osc.host, '127.0.0.1')
 	assert.equal(settings.osc.port, 9000)
 	assert.equal(settings.translation.provider, 'transformers')
@@ -22,12 +23,14 @@ test('saves validated settings and can replace an existing file', async (context
 	const store = new SettingsStore(directory)
 	const settings = await store.load()
 	settings.osc.port = 9001
+	settings.speech.model = 'large-v3-turbo'
 
 	await store.save(settings)
 	settings.osc.port = 9002
 	await store.save(settings)
 
 	assert.equal((await store.load()).osc.port, 9002)
+	assert.equal((await store.load()).speech.model, 'large-v3-turbo')
 	assert.equal(JSON.parse(await readFile(store.path, 'utf8')).osc.port, 9002)
 })
 

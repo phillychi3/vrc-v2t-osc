@@ -5,6 +5,7 @@ from typing import Any
 
 
 SPEECH_MODELS = {
+    "auto",
     "tiny",
     "base",
     "small",
@@ -25,7 +26,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "speakerDeviceId": "speaker:default",
         "autoStart": False,
     },
-    "speech": {"model": "large-v3-turbo", "language": "zh"},
+    "speech": {"model": "auto", "language": "zh"},
     "translation": {
         "enabled": False,
         "provider": "transformers",

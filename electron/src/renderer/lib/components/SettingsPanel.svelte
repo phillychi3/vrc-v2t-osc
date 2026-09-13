@@ -64,7 +64,7 @@
 	let host = $state('127.0.0.1')
 	let port = $state('9000')
 	let parameter = $state('/avatar/parameters/v2t_sync_emo')
-	let speechModel = $state('large-v3-turbo')
+	let speechModel = $state('auto')
 	let translationProvider = $state('transformers')
 	let translationModel = $state('facebook/nllb-200-distilled-600M')
 	let sourceLanguage = $state('zh')
@@ -84,12 +84,13 @@
 		{ value: 'es', label: 'Español' }
 	]
 	const speechModelOptions = [
+		{ value: 'auto', label: '自動（CPU 用 Base／CUDA 用 Turbo）' },
 		{ value: 'tiny', label: 'Tiny（最快）' },
 		{ value: 'base', label: 'Base' },
 		{ value: 'small', label: 'Small' },
 		{ value: 'medium', label: 'Medium' },
 		{ value: 'large-v3', label: 'Large v3（最精準）' },
-		{ value: 'large-v3-turbo', label: 'Large v3 Turbo（建議）' }
+		{ value: 'large-v3-turbo', label: 'Large v3 Turbo（建議使用 GPU）' }
 	]
 	const translationModelOptions = [
 		{ value: 'facebook/nllb-200-distilled-600M', label: 'NLLB 200 Distilled 600M（建議）' },
@@ -228,7 +229,7 @@
 				<p class="field-help">
 					{speechModelStatus === 'loading'
 						? '模型載入中，完成後才能再次切換'
-						: '較大模型更精準，但載入、記憶體與辨識時間也會增加'}
+						: 'CPU 安裝版建議選自動或 Tiny。較大模型會增加記憶體與辨識時間；自動模式首次使用可能需要下載模型。'}
 				</p>
 			</div>
 		</section>

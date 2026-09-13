@@ -6,7 +6,7 @@ from backend.settings import SettingsError, apply_patch, default_settings
 class SettingsTests(unittest.TestCase):
     def test_defaults_match_migration_spec(self) -> None:
         settings = default_settings()
-        self.assertEqual(settings["speech"]["model"], "large-v3-turbo")
+        self.assertEqual(settings["speech"]["model"], "auto")
         self.assertEqual(settings["osc"]["port"], 9000)
         self.assertFalse(settings["audio"]["autoStart"])
         self.assertEqual(settings["audio"]["speakerDeviceId"], "speaker:default")

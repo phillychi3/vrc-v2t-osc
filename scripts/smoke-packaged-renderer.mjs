@@ -61,6 +61,7 @@ try {
 		)
 
 		const modelOptions = await cdp.evaluate(`({
+			selectedSpeech: document.querySelector('#speech-model')?.value,
 			speech: Array.from(document.querySelectorAll('#speech-model option')).map(
 				(option) => option.value
 			),
@@ -69,10 +70,19 @@ try {
 			)
 		})`)
 		assert.ok(modelOptions.speech.includes('large-v3-turbo'), 'speech model selector is missing')
+		assert.ok(modelOptions.speech.includes('auto'), 'automatic speech model option is missing')
+		assert.equal(modelOptions.selectedSpeech, 'auto', 'fresh installs should use automatic speech')
 		assert.ok(
 			modelOptions.translation.includes('facebook/nllb-200-distilled-1.3B'),
 			'translation model selector is missing'
 		)
+		// A small speech model can be ready before device enumeration finishes.
+		await waitFor(async () => {
+			const label = await cdp.evaluate(
+				`document.querySelector('#speaker-device input')?.value?.trim() ?? ''`
+			)
+			return label.includes('系統預設喇叭')
+		}, 15_000)
 		const integrationState = await cdp.evaluate(`({
 			speakerDevice: Boolean(document.querySelector('#speaker-device')),
 			speakerDeviceText:

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import os
 import queue
 import re
 import sys
 import threading
+import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -20,13 +22,16 @@ ModelStatusHandler = Callable[[str, str, str | None], None]
 RecordingStateHandler = Callable[[str, str], None]
 TranscriptHandler = Callable[[str, str], None]
 ErrorHandler = Callable[[str], None]
-Segment = tuple[str, str, bytes]
+Segment = tuple[str, str, bytes, float]
 _CJK_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]")
 _FRAMES_PER_BUFFER = 1024
 # ~1.4s of 48 kHz loopback audio; deep enough to ride out a Whisper burst.
 _FRAME_QUEUE_SIZE = 64
 # How long the processing thread waits for audio before rechecking stop flags.
 _FRAME_POLL_SECONDS = 0.1
+_VAD_BATCH_SAMPLES = 1600  # Run VAD at most ten times per second per device.
+_END_SILENCE_SECONDS = 0.8
+_MAX_SEGMENT_WAIT_SECONDS = 15.0
 
 
 class _UtteranceBuffer:
@@ -84,6 +89,12 @@ class _UtteranceBuffer:
         self._silence_samples = 0
         self._utterance_samples = 0
         return segment
+
+    def flush(self) -> bytes | None:
+        """Finish speech when a loopback device stops delivering buffers."""
+        if not self._speaking:
+            return None
+        return self._finish_segment(continue_speaking=False)
 
 
 class VoiceError(RuntimeError):
@@ -443,15 +454,27 @@ class VoiceService:
         load_silero_vad: Any,
     ) -> None:
         try:
-            torch.set_num_threads(1)
+            # Silero sets the process-wide Torch thread count to one on import.
+            # Give CPU Whisper a bounded budget, leaving room for VRChat.
+            torch.set_num_threads(min(4, max(1, (os.cpu_count() or 2) // 2)))
             # Pin implicit module allocations to real CPU storage.
             torch.set_default_device("cpu")
             with contextlib.redirect_stdout(sys.stderr):
-                model = whisper.load_model(self._model_name)
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                model_name = self._model_name
+                if model_name == "auto":
+                    model_name = "large-v3-turbo" if device == "cuda" else "base"
+                model = whisper.load_model(model_name, device=device)
                 vad_model = load_silero_vad()
             if self._closed.is_set():
                 return
             device = str(next(model.parameters()).device)
+            logging.info(
+                "Speech model=%s device=%s CPU threads=%d",
+                model_name,
+                device,
+                torch.get_num_threads(),
+            )
             with self._lock:
                 self._model = model
                 self._vad_model = vad_model
@@ -474,6 +497,8 @@ class VoiceService:
         rate = 16000
         rate_state: ResampleState | None = None
         rolling: list[int] = []
+        pending = bytearray()
+        last_audio_at = time.monotonic()
         utterance = _UtteranceBuffer(sample_rate=rate)
         try:
             import numpy as np
@@ -482,32 +507,50 @@ class VoiceService:
             while not session.stop_event.is_set() and not self._closed.is_set():
                 audio_data = session.next_buffer(_FRAME_POLL_SECONDS)
                 if audio_data is None:
-                    # A silent loopback device simply produces nothing; loop
-                    # back so the stop flags are rechecked promptly.
-                    continue
-                audio_data, rate_state = self._normalize_audio(
-                    audio_data,
-                    session.input_channels,
-                    session.input_rate,
-                    rate_state,
-                )
+                    if not pending:
+                        if time.monotonic() - last_audio_at >= _END_SILENCE_SECONDS:
+                            segment = utterance.flush()
+                            if segment:
+                                self._offer_segment(
+                                    (
+                                        session.transcript_source,
+                                        session.session_id,
+                                        segment,
+                                        time.monotonic(),
+                                    )
+                                )
+                            rolling.clear()
+                        continue
+                else:
+                    last_audio_at = time.monotonic()
+                    normalized, rate_state = self._normalize_audio(
+                        audio_data,
+                        session.input_channels,
+                        session.input_rate,
+                        rate_state,
+                    )
+                    pending.extend(normalized)
+                    if len(pending) < _VAD_BATCH_SAMPLES * 2:
+                        continue
+                audio_data = bytes(pending)
+                pending.clear()
                 samples = np.frombuffer(audio_data, dtype=np.int16)
                 if samples.size == 0:
                     continue
                 rolling.extend(samples.tolist())
-                rolling = rolling[-rate * 15 :]
-                if len(rolling) < rate // 2:
-                    continue
-                tensor = torch.tensor(rolling, dtype=torch.float32) / 32768.0
-                with self._vad_lock:
-                    timestamps = self._get_speech_timestamps(
-                        tensor,
-                        self._vad_model,
-                        threshold=0.6,
-                        return_seconds=False,
-                        min_speech_duration_ms=300,
-                        min_silence_duration_ms=800,
-                    )
+                rolling = rolling[-rate // 2 :]
+                timestamps = []
+                if len(rolling) >= rate * 3 // 10:
+                    tensor = torch.tensor(rolling, dtype=torch.float32) / 32768.0
+                    with self._vad_lock:
+                        timestamps = self._get_speech_timestamps(
+                            tensor,
+                            self._vad_model,
+                            threshold=0.6,
+                            return_seconds=False,
+                            min_speech_duration_ms=300,
+                            min_silence_duration_ms=800,
+                        )
                 segment = utterance.feed(audio_data, len(samples), bool(timestamps))
                 if segment:
                     self._offer_segment(
@@ -515,6 +558,7 @@ class VoiceService:
                             session.transcript_source,
                             session.session_id,
                             segment,
+                            time.monotonic(),
                         )
                     )
                 rolling = rolling[-rate // 2 :]
@@ -543,7 +587,7 @@ class VoiceService:
             try:
                 if item is None:
                     return
-                transcript_source, session_id, segment = item
+                transcript_source, session_id, segment, queued_at = item
                 if not self._is_session_active(transcript_source, session_id):
                     continue
                 audio = (
@@ -557,13 +601,29 @@ class VoiceService:
                 # buy nothing here and force Whisper onto the numba DTW fallback
                 # whenever Triton cannot find a CUDA toolkit.
                 with inference_lock():
-                    result = self._model.transcribe(
-                        audio,
-                        language=language,
-                        task="transcribe",
-                        best_of=5,
-                        temperature=0.0,
+                    wait_seconds = time.monotonic() - queued_at
+                    stale = wait_seconds > _MAX_SEGMENT_WAIT_SECONDS
+                    if not stale:
+                        started_at = time.monotonic()
+                        result = self._model.transcribe(
+                            audio,
+                            language=language,
+                            task="transcribe",
+                            temperature=0.0,
+                            fp16=str(next(self._model.parameters()).device).startswith(
+                                "cuda"
+                            ),
+                        )
+                if stale:
+                    logging.warning(
+                        "Dropped stale %s speech after %.1fs waiting",
+                        transcript_source,
+                        wait_seconds,
                     )
+                    self._on_error(
+                        "辨識速度跟不上，已略過過期音訊；請改用自動或較小的語音模型"
+                    )
+                    continue
                 text = str(result.get("text", "")).strip()
                 if self._needs_english_retry(transcript_source, language, text):
                     with inference_lock():
@@ -571,10 +631,19 @@ class VoiceService:
                             audio,
                             language=None,
                             task="translate",
-                            best_of=5,
                             temperature=0.0,
+                            fp16=str(next(self._model.parameters()).device).startswith(
+                                "cuda"
+                            ),
                         )
                     text = str(result.get("text", "")).strip()
+                logging.info(
+                    "Speech source=%s audio=%.2fs queue=%.2fs inference=%.2fs",
+                    transcript_source,
+                    len(audio) / 16000,
+                    wait_seconds,
+                    time.monotonic() - started_at,
+                )
                 if text and self._is_session_active(transcript_source, session_id):
                     self._on_transcript(text, transcript_source)
             except Exception as exc:

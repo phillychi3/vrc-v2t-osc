@@ -2,7 +2,7 @@ import unittest
 import threading
 import time
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import numpy as np
 
@@ -10,6 +10,116 @@ from backend.voice import VoiceService, _CaptureSession, _UtteranceBuffer
 
 
 class VoiceAudioConversionTests(unittest.TestCase):
+    def make_service(self, **options) -> VoiceService:
+        return VoiceService(
+            model_name=options.pop("model_name", "auto"),
+            language="zh",
+            save_audio=False,
+            save_dir=".",
+            on_model_status=lambda *_args: None,
+            on_recording_state=lambda *_args: None,
+            on_transcript=options.pop("on_transcript", lambda *_args: None),
+            on_error=options.pop("on_error", lambda *_args: None),
+            **options,
+        )
+
+    def test_auto_model_uses_cpu_base_or_cuda_turbo_and_respects_explicit_choice(self):
+        for requested, cuda, expected in (
+            ("auto", False, "base"),
+            ("auto", True, "large-v3-turbo"),
+            ("small", False, "small"),
+        ):
+            with self.subTest(requested=requested, cuda=cuda):
+                service = self.make_service(model_name=requested)
+                torch = Mock()
+                torch.cuda.is_available.return_value = cuda
+                torch.get_num_threads.return_value = 4
+                whisper = Mock()
+                device = "cuda" if cuda else "cpu"
+                whisper.load_model.return_value.parameters.return_value = iter(
+                    [SimpleNamespace(device=device)]
+                )
+                with (
+                    patch("backend.voice.os.cpu_count", return_value=24),
+                    patch("backend.voice.threading.Thread"),
+                ):
+                    service._load_models(torch, whisper, Mock(), Mock())
+                self.assertTrue(service.ready)
+                whisper.load_model.assert_called_once_with(expected, device=device)
+                torch.set_num_threads.assert_called_once_with(4)
+
+    def test_loopback_flushes_last_sentence_without_another_audio_buffer(self):
+        service = self.make_service()
+        session = _CaptureSession(
+            source="speaker",
+            transcript_source="speaker",
+            session_id="test",
+            stream=None,
+            input_rate=16000,
+            input_channels=1,
+            stop_event=threading.Event(),
+        )
+        frames = [np.full(1024, 1000, dtype=np.int16).tobytes() for _ in range(16)]
+        buffers = iter(frames)
+        now = [0.0]
+
+        def next_buffer(_timeout):
+            data = next(buffers, None)
+            now[0] += 0.064 if data is not None else 0.1
+            if now[0] > 3:
+                session.stop_event.set()
+            return data
+
+        captured = []
+
+        def offer(segment):
+            captured.append(segment)
+            session.stop_event.set()
+
+        session.next_buffer = next_buffer
+        service._offer_segment = offer
+        service._get_speech_timestamps = Mock(return_value=[{"start": 0, "end": 8000}])
+        fake_torch = SimpleNamespace(tensor=np.array, float32=np.float32)
+        with (
+            patch.dict("sys.modules", {"torch": fake_torch}),
+            patch("backend.voice.time.monotonic", side_effect=lambda: now[0]),
+        ):
+            service._capture_loop(session)
+
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(captured[0][:3], ("speaker", "test", b"".join(frames)))
+        self.assertLess(now[0], 2)
+        self.assertLessEqual(service._get_speech_timestamps.call_count, 10)
+
+    def test_transcriber_skips_stale_audio_and_processes_current_audio(self):
+        errors, transcripts = [], []
+        service = self.make_service(
+            on_error=errors.append,
+            on_transcript=lambda text, source: transcripts.append((text, source)),
+        )
+        service._model = Mock()
+        service._model.parameters.side_effect = lambda: iter(
+            [SimpleNamespace(device="cpu")]
+        )
+        service._model.transcribe.return_value = {"text": "測試"}
+        service._segments.put(("speaker", "test", b"\0\0" * 1600, time.monotonic() - 60))
+        service._segments.put(("voice", "test", b"\0\0" * 1600, time.monotonic()))
+        service._segments.put(None)
+        with patch.object(service, "_is_session_active", return_value=True):
+            service._transcribe_loop()
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(transcripts, [("測試", "voice")])
+        self.assertEqual(service._model.transcribe.call_count, 1)
+        self.assertFalse(service._model.transcribe.call_args.kwargs["fp16"])
+        self.assertEqual(service._segments.unfinished_tasks, 0)
+
+    def test_flushing_silence_or_an_already_finished_utterance_returns_nothing(self):
+        buffer = _UtteranceBuffer(sample_rate=10)
+        self.assertIsNone(buffer.flush())
+        buffer.feed(b"aa", 1, True)
+        self.assertEqual(buffer.flush(), b"aa")
+        self.assertIsNone(buffer.flush())
+
     def test_lists_microphone_and_speaker_loopback_devices(self) -> None:
         class FakeAudio:
             def get_default_input_device_info(self) -> dict[str, object]:

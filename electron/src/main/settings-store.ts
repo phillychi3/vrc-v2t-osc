@@ -5,7 +5,7 @@ import type { BackendSettings } from '../shared/ipc.js'
 const DEFAULT_SETTINGS: BackendSettings = {
 	schemaVersion: 1,
 	audio: { deviceId: 'default', speakerDeviceId: 'speaker:default', autoStart: false },
-	speech: { model: 'large-v3-turbo', language: 'zh' },
+	speech: { model: 'auto', language: 'zh' },
 	translation: {
 		enabled: false,
 		provider: 'transformers',
