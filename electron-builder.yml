@@ -2,7 +2,7 @@ appId: com.phillychi3.vrc-v2t-osc
 productName: VRC V2T OSC
 directories:
   output: release
-  buildResources: static
+  buildResources: icons
 files:
   - build/electron/**/*
   - build/renderer/**/*
@@ -14,10 +14,13 @@ extraResources:
       - '**/*'
 asar: true
 win:
+  icon: icons/windows/icon.ico
   target: nsis
 mac:
+  icon: icons/macos/icon.icns
   target: dmg
   category: public.app-category.developer-tools
 linux:
+  icon: icons/linux/icons
   target: AppImage
   category: Utility

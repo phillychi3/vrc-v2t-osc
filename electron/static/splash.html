@@ -30,39 +30,10 @@
 				gap: 18px;
 			}
 			.logo {
-				display: grid;
+				display: block;
 				width: 62px;
 				height: 62px;
-				place-items: center;
-				border: 1px solid rgba(251, 146, 60, 0.35);
-				border-radius: 18px;
-				background: rgba(24, 24, 27, 0.85);
-				box-shadow: 0 18px 55px rgba(249, 115, 22, 0.18);
-			}
-			.wave {
-				display: flex;
-				align-items: center;
-				gap: 4px;
-				height: 28px;
-			}
-			.wave i {
-				width: 4px;
-				border-radius: 3px;
-				background: #fb923c;
-				animation: pulse 900ms ease-in-out infinite;
-			}
-			.wave i:nth-child(1),
-			.wave i:nth-child(5) {
-				height: 10px;
-				animation-delay: -400ms;
-			}
-			.wave i:nth-child(2),
-			.wave i:nth-child(4) {
-				height: 19px;
-				animation-delay: -200ms;
-			}
-			.wave i:nth-child(3) {
-				height: 28px;
+				object-fit: contain;
 			}
 			h1 {
 				margin: 0;
@@ -91,17 +62,6 @@
 				background: #f97316;
 				animation: loading 1.2s ease-in-out infinite;
 			}
-			@keyframes pulse {
-				0%,
-				100% {
-					transform: scaleY(0.55);
-					opacity: 0.65;
-				}
-				50% {
-					transform: scaleY(1);
-					opacity: 1;
-				}
-			}
 			@keyframes loading {
 				from {
 					transform: translateX(-110%);
@@ -114,9 +74,7 @@
 	</head>
 	<body>
 		<main>
-			<div class="logo" aria-hidden="true">
-				<span class="wave"><i></i><i></i><i></i><i></i><i></i></span>
-			</div>
+			<img class="logo" src="./favicon.png" alt="" aria-hidden="true" />
 			<h1>VRC V2T OSC</h1>
 			<div class="loader" aria-label="載入中"></div>
 		</main>
