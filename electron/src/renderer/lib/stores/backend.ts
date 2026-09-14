@@ -21,6 +21,8 @@ export interface Transcript {
 	translationProvider?: string
 	translationSourceLanguage?: string
 	translationTargetLanguage?: string
+	oscStatus?: 'pending' | 'sent' | 'skipped'
+	oscReason?: string
 }
 
 const state = writable<BackendState | null>(null)
@@ -234,7 +236,15 @@ function markFailed(message: string): void {
 	audioDevices.set([])
 	translationProviders.set([])
 	translationStatuses.set({})
-	transcripts.update((items) => items.map((item) => ({ ...item, translationPending: false })))
+	transcripts.update((items) =>
+		items.map((item) => ({
+			...item,
+			translationPending: false,
+			...(item.oscStatus === 'pending'
+				? { oscStatus: 'skipped' as const, oscReason: 'closed' }
+				: {})
+		}))
+	)
 }
 
 function applyEvent(event: BackendEvent): void {
@@ -279,14 +289,35 @@ function applyEvent(event: BackendEvent): void {
 		return
 	}
 	if (event.event === 'transcript.final' && isTranscript(event.data)) {
-		const transcript = {
+		const transcript: Transcript = {
 			...event.data,
+			oscStatus: event.data.source === 'speaker' ? undefined : 'pending',
 			receivedAt: new Date().toISOString(),
 			translationPending:
 				Boolean(current?.settings.translation.enabled) &&
 				(event.data.source === 'voice' || event.data.source === 'speaker')
 		}
 		transcripts.update((items) => [transcript, ...items].slice(0, 1_000))
+	}
+	if (
+		(event.event === 'osc.sent' || event.event === 'osc.skipped') &&
+		isRecord(event.data) &&
+		event.data.kind === 'text' &&
+		typeof event.data.utteranceId === 'string'
+	) {
+		const result = event.data
+		const status = event.event === 'osc.sent' ? 'sent' : 'skipped'
+		transcripts.update((items) =>
+			items.map((item) =>
+				item.utteranceId === result.utteranceId
+					? {
+							...item,
+							oscStatus: status,
+							oscReason: typeof result.reason === 'string' ? result.reason : undefined
+						}
+					: item
+			)
+		)
 	}
 	if (event.event === 'emotion.result' && isEmotionResult(event.data)) {
 		const result = event.data

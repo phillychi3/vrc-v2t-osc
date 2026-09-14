@@ -6,7 +6,7 @@ from collections.abc import Callable
 from copy import deepcopy
 from typing import Any, Protocol
 
-from backend.osc import OscService
+from backend.osc import OscService, text_rejection_reason
 from backend.protocol import Request
 from backend.settings import apply_patch, default_settings, validate_settings
 
@@ -107,6 +107,8 @@ class BackendService:
         self._latest_voice_source: str | None = None
         self._suppress_auto_start = False
         self._recording_generations = {"voice": 0, "speaker": 0}
+        self._latest_voice_generation = 0
+        self._stopped_sources: set[str] = set()
 
     @property
     def stopped(self) -> bool:
@@ -144,14 +146,14 @@ class BackendService:
             voice, self._voice = self._voice, None
             emotion, self._emotion = self._emotion, None
             translation, self._translation = self._translation, None
+        if osc is not None:
+            osc.close()
         if voice is not None:
             voice.close()
         if emotion is not None:
             emotion.close()
         if translation is not None:
             translation.close()
-        if osc is not None:
-            osc.close()
         with self._lock:
             self._recording = "idle"
             self._recording_source = None
@@ -245,9 +247,16 @@ class BackendService:
         with self._lock:
             if self._recordings[source] not in {"idle", "error"}:
                 return {"state": self._recordings[source]}
+            self._stopped_sources.discard(
+                "voice" if source == "microphone" else "speaker"
+            )
         try:
             voice.start(device_id, source)
         except Exception as exc:
+            with self._lock:
+                self._stopped_sources.add(
+                    "voice" if source == "microphone" else "speaker"
+                )
             raise ServiceError("RECORDING_FAILED", str(exc), retryable=True) from exc
         return {"state": self._recordings[source]}
 
@@ -257,7 +266,12 @@ class BackendService:
             raise ServiceError("INVALID_PARAMS", "source 必須是 microphone 或 speaker")
         with self._lock:
             transcript_source = "voice" if source == "microphone" else "speaker"
+            self._stopped_sources.add(transcript_source)
             self._recording_generations[transcript_source] += 1
+            if self._osc is not None:
+                self._osc.set_source_generation(
+                    transcript_source, self._recording_generations[transcript_source]
+                )
             if self._latest_voice_source == transcript_source:
                 self._latest_voice_utterance_id = None
         voice = self._voice
@@ -395,17 +409,17 @@ class BackendService:
         text = params.get("text")
         if not isinstance(text, str) or not text.strip():
             raise ServiceError("INVALID_PARAMS", "text 必須是非空字串")
+        reason = text_rejection_reason(text)
+        if reason in {"too_long", "too_many_lines"}:
+            raise ServiceError(
+                "TEXT_TOO_LONG", "聊天文字最多 144 字（含表情符號長度）及 9 行"
+            )
         utterance_id = str(uuid.uuid4())
         self._emit(
             "transcript.final",
             {"utteranceId": utterance_id, "text": text, "source": "manual"},
         )
-        accepted = self._osc is not None and self._osc.send_text(text)
-        if not accepted:
-            self._emit(
-                "osc.skipped",
-                {"utteranceId": utterance_id, "reason": "disabled_or_overloaded"},
-            )
+        accepted = self._send_transcript_to_osc(utterance_id, text)
         return {"utteranceId": utterance_id, "accepted": accepted}
 
     def _shutdown(self, _params: dict[str, Any]) -> object:
@@ -420,7 +434,10 @@ class BackendService:
             port=osc["port"],
             enabled=osc["enabled"],
             emotion_parameter=self._settings["emotion"]["parameter"],
+            on_event=self._emit,
         )
+        for source, generation in self._recording_generations.items():
+            self._osc.set_source_generation(source, generation)
         if old_osc is not None:
             old_osc.close()
 
@@ -488,15 +505,21 @@ class BackendService:
     def _on_voice_transcript(self, text: str, source: str = "voice") -> None:
         utterance_id = str(uuid.uuid4())
         with self._lock:
+            if self._lifecycle != "ready" or source in self._stopped_sources:
+                return
+            generation = self._recording_generations[source]
             self._latest_voice_utterance_id = utterance_id
             self._latest_voice_source = source
+            self._latest_voice_generation = generation
         self._emit(
             "transcript.final",
             {"utteranceId": utterance_id, "text": text, "source": source},
         )
-        translating = self._submit_transcript_translation(utterance_id, text, source)
-        if not translating:
-            self._send_transcript_to_osc(utterance_id, text)
+        translating = self._submit_transcript_translation(
+            utterance_id, text, source, generation
+        )
+        if not translating and source == "voice":
+            self._send_transcript_to_osc(utterance_id, text, source, generation)
         emotion = self._emotion
         if self._settings["emotion"]["enabled"] and emotion is not None:
             emotion.submit(utterance_id, text)
@@ -524,8 +547,13 @@ class BackendService:
                 and utterance_id == self._latest_voice_utterance_id
             )
             osc = self._osc
-        if should_apply and osc is not None:
-            osc.set_face(face_id)
+            if should_apply and osc is not None:
+                osc.set_face(
+                    face_id,
+                    utterance_id=utterance_id,
+                    source=self._latest_voice_source,
+                    generation=self._latest_voice_generation,
+                )
 
     def _on_emotion_error(self, message: str) -> None:
         self._emit(
@@ -552,7 +580,9 @@ class BackendService:
                 and isinstance(text, str)
                 and self._translation_context_active(context)
             ):
-                self._send_transcript_to_osc(utterance_id, text)
+                self._send_transcript_to_osc(
+                    utterance_id, text, context["source"], context["recordingGeneration"]
+                )
 
     def _on_translation_status(self, provider: str, status: str) -> None:
         self._emit(
@@ -576,7 +606,12 @@ class BackendService:
                     and isinstance(original_text, str)
                     and self._translation_context_active(context)
                 ):
-                    self._send_transcript_to_osc(utterance_id, original_text)
+                    self._send_transcript_to_osc(
+                        utterance_id,
+                        original_text,
+                        context["source"],
+                        context["recordingGeneration"],
+                    )
 
     def _translation_context_active(self, context: dict[str, Any]) -> bool:
         source = context.get("source")
@@ -588,7 +623,7 @@ class BackendService:
         )
 
     def _submit_transcript_translation(
-        self, utterance_id: str, text: str, source: str
+        self, utterance_id: str, text: str, source: str, generation: int
     ) -> bool:
         translation = self._translation
         settings = self._settings["translation"]
@@ -627,8 +662,8 @@ class BackendService:
                 "utteranceId": utterance_id,
                 "source": source,
                 "originalText": text,
-                "sendToOsc": True,
-                "recordingGeneration": self._recording_generations[source],
+                "sendToOsc": source == "voice",
+                "recordingGeneration": generation,
             },
         )
         if job_id is None:
@@ -643,14 +678,19 @@ class BackendService:
             return False
         return True
 
-    def _send_transcript_to_osc(self, utterance_id: str, text: str) -> None:
+    def _send_transcript_to_osc(
+        self, utterance_id: str, text: str, source: str | None = None, generation: int = 0
+    ) -> bool:
         osc = self._osc
-        accepted = osc is not None and osc.send_text(text)
-        if not accepted:
+        if osc is None:
             self._emit(
                 "osc.skipped",
-                {"utteranceId": utterance_id, "reason": "disabled_or_overloaded"},
+                {"utteranceId": utterance_id, "kind": "text", "reason": "closed"},
             )
+            return False
+        return osc.send_text(
+            text, utterance_id=utterance_id, source=source, generation=generation
+        )
 
     @staticmethod
     def _required_string(params: dict[str, Any], name: str) -> str:

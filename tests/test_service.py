@@ -1,5 +1,8 @@
 import unittest
+import threading
+from unittest.mock import Mock
 
+from backend.osc import OscService
 from backend.protocol import Request
 from backend.service import BackendService, ServiceError
 from backend.settings import default_settings
@@ -11,17 +14,30 @@ class FakeOsc:
         self.sent: list[str] = []
         self.faces: list[int] = []
         self.closed = False
+        self.on_event = kwargs.get("on_event")
 
     def set_enabled(self, enabled: bool) -> None:
         self.enabled = enabled
 
-    def send_text(self, text: str) -> bool:
+    def set_source_generation(self, source: str, generation: int) -> None:
+        pass
+
+    def send_text(self, text: str, **kwargs: object) -> bool:
         if not self.enabled or self.closed:
+            if self.on_event:
+                self.on_event(
+                    "osc.skipped",
+                    {
+                        "utteranceId": kwargs.get("utterance_id"),
+                        "kind": "text",
+                        "reason": "disabled",
+                    },
+                )
             return False
         self.sent.append(text)
         return True
 
-    def set_face(self, face_id: int) -> bool:
+    def set_face(self, face_id: int, **kwargs: object) -> bool:
         if not self.enabled or self.closed:
             return False
         self.faces.append(face_id)
@@ -226,6 +242,59 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(result, {"state": "stopped"})
         self.assertTrue(self.service.stopped)
         self.assertTrue(self.osc_instances[0].closed)
+
+    def test_late_transcript_after_stop_or_shutdown_is_ignored(self) -> None:
+        self.initialize()
+        self.service.handle(Request("stop", "recording.stop", {"source": "microphone"}))
+        before = len(self.events)
+        self.service._on_voice_transcript("late", "voice")
+        self.assertEqual(len(self.events), before)
+        self.assertEqual(self.osc_instances[0].sent, [])
+        self.service.close()
+        self.service._on_voice_transcript("late speaker", "speaker")
+        self.assertEqual(len(self.events), before)
+
+    def test_manual_oversize_is_rejected_before_creating_transcript(self) -> None:
+        self.initialize()
+        before = len(self.events)
+        with self.assertRaises(ServiceError) as caught:
+            self.service.handle(Request("long", "text.send", {"text": "中" * 145}))
+        self.assertEqual(caught.exception.code, "TEXT_TOO_LONG")
+        self.assertEqual(len(self.events), before)
+        self.assertEqual(self.osc_instances[0].sent, [])
+
+    def test_real_sender_cancels_pending_translation_on_stop(self) -> None:
+        client = Mock()
+        sent = threading.Event()
+        events = []
+
+        def emit(name, payload):
+            events.append(payload)
+            if name == "osc.sent":
+                sent.set()
+
+        service = BackendService(
+            emit,
+            osc_factory=lambda **kwargs: OscService(
+                **kwargs, client_factory=lambda *_args: client, chat_interval=60
+            ),
+            translation_factory=FakeTranslation,
+        )
+        self.addCleanup(service.close)
+        settings = default_settings()
+        settings["translation"]["enabled"] = True
+        service.handle(
+            Request(
+                "init", "system.initialize", {"settings": settings, "dataPath": "C:/data"}
+            )
+        )
+        service.handle(Request("manual", "text.send", {"text": "first"}))
+        self.assertTrue(sent.wait(1))
+        service._on_voice_transcript("pending translation", "voice")
+        service.handle(Request("stop", "recording.stop", {"source": "microphone"}))
+        skipped = [e for e in events if e["event"] == "osc.skipped"]
+        self.assertEqual(skipped[-1]["data"]["reason"], "stale")
+        client.send_message.assert_called_once_with("/chatbox/input", ["first", True])
 
     def test_audio_devices_and_recording_commands(self) -> None:
         voices: list[FakeVoice] = []
@@ -538,7 +607,53 @@ class ServiceTests(unittest.TestCase):
         service._on_translation_error("pending", "failed", mic)
         self.assertEqual(oscs[0].sent, [])
         service._on_translation_result({"context": speaker, "text": "speaker"})
-        self.assertEqual(oscs[0].sent, ["speaker"])
+        self.assertEqual(oscs[0].sent, [])
+
+    def test_speaker_text_stays_local_for_all_translation_outcomes(self) -> None:
+        for outcome in ("success", "failure", "overloaded", "disabled"):
+            with self.subTest(outcome=outcome):
+                events = []
+                osc = FakeOsc(enabled=True)
+
+                class Translation(FakeTranslation):
+                    def submit(self, **kwargs):
+                        if outcome == "overloaded":
+                            return None
+                        if outcome == "failure":
+                            self.callbacks["on_error"](
+                                "failed-job", "failed", kwargs["context"]
+                            )
+                            return "failed-job"
+                        return super().submit(**kwargs)
+
+                service = BackendService(
+                    lambda _name, payload: events.append(payload),
+                    osc_factory=lambda **kwargs: osc,
+                    translation_factory=Translation,
+                )
+                self.addCleanup(service.close)
+                settings = default_settings()
+                settings["translation"]["enabled"] = outcome != "disabled"
+                service.handle(
+                    Request(
+                        "init",
+                        "system.initialize",
+                        {"settings": settings, "dataPath": "C:/data"},
+                    )
+                )
+
+                service._on_voice_transcript("speaker original", "speaker")
+
+                self.assertEqual(osc.sent, [])
+                transcripts = [e for e in events if e["event"] == "transcript.final"]
+                self.assertEqual(transcripts[-1]["data"]["text"], "speaker original")
+                if outcome == "success":
+                    results = [e for e in events if e["event"] == "translation.result"]
+                    self.assertEqual(results[-1]["data"]["text"], "Hello")
+                elif outcome in {"failure", "overloaded"}:
+                    self.assertTrue(
+                        any(e["event"] == "translation.error" for e in events)
+                    )
 
     def test_voice_transcript_is_translated_before_osc_when_enabled(self) -> None:
         translations: list[FakeTranslation] = []

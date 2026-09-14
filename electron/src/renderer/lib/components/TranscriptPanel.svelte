@@ -15,6 +15,24 @@
 	}
 
 	const emotionLabels = ['平淡', '關切', '開心', '憤怒', '悲傷', '疑問', '驚奇', '厭惡']
+	const oscReasons: Record<string, string> = {
+		disabled: 'OSC 已停用',
+		overloaded: '佇列已滿，未送出',
+		stale: '錄音已停止，未送出',
+		closed: '後端已關閉，未送出',
+		too_long: '超過 144 字，未送出',
+		too_many_lines: '超過 9 行，未送出',
+		send_failed: 'OSC 傳送失敗',
+		empty: '空白文字，未送出'
+	}
+
+	function oscLabel(item: Transcript): string {
+		if (item.source === 'speaker') return '僅顯示'
+		if (item.oscStatus === 'sent') return 'OSC 已送出'
+		if (item.oscStatus === 'pending') return '等待送出'
+		if (item.oscStatus === 'skipped') return oscReasons[item.oscReason ?? ''] ?? '未送出'
+		return ''
+	}
 
 	function timeLabel(value?: string): string {
 		if (!value) return '剛剛'
@@ -69,6 +87,7 @@
 						</div>
 						<div class="pt-1 text-right text-[10px] text-zinc-400">
 							<time class="block">{timeLabel(item.receivedAt)}</time>
+							<span class="mt-1 block">{oscLabel(item)}</span>
 							{#if item.emotion !== undefined}
 								<span class="mt-1 block"
 									>{emotionLabels[item.emotion] ?? `情緒 ${item.emotion}`}</span

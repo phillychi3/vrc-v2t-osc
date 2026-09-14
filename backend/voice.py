@@ -644,8 +644,11 @@ class VoiceService:
                     wait_seconds,
                     time.monotonic() - started_at,
                 )
-                if text and self._is_session_active(transcript_source, session_id):
-                    self._on_transcript(text, transcript_source)
+                with self._lock:
+                    # Stop must retire this session before a later start can
+                    # admit callbacks; checking and publishing are one operation.
+                    if text and self._is_session_active(transcript_source, session_id):
+                        self._on_transcript(text, transcript_source)
             except Exception as exc:
                 logging.exception("Transcription failed")
                 if not self._closed.is_set():

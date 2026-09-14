@@ -23,7 +23,14 @@
 	}
 
 	function handleKeydown(event: KeyboardEvent): void {
-		if (event.key !== 'Enter' || event.shiftKey || composing) return
+		if (
+			event.key !== 'Enter' ||
+			event.shiftKey ||
+			composing ||
+			event.isComposing ||
+			event.keyCode === 229
+		)
+			return
 		event.preventDefault()
 		void send()
 	}
@@ -37,6 +44,7 @@
 	>
 		<textarea
 			bind:value={text}
+			aria-label="聊天文字"
 			rows="1"
 			maxlength="1000"
 			{disabled}

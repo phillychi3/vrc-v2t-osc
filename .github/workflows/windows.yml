@@ -48,6 +48,14 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm exec eslint .
       - run: pnpm build
+      - name: Electron UI regression with fake backend
+        run: pnpm test:renderer
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: renderer-evidence
+          path: build/p5-ui*
+          if-no-files-found: warn
       - name: Build isolated CPU backend
         shell: pwsh
         run: ./scripts/build-backend.ps1
