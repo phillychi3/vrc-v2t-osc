@@ -13,7 +13,7 @@ import type {
 const PROTOCOL_VERSION = 1
 const MAX_LINE_BYTES = 1024 * 1024
 const DEFAULT_TIMEOUT_MS = 5_000
-const LONG_TIMEOUT_MS = 120_000
+const INITIALIZATION_TIMEOUT_MS = 15 * 60_000
 
 interface PendingRequest {
 	resolve: (value: unknown) => void
@@ -99,7 +99,7 @@ export class BackendProcess extends EventEmitter<BackendProcessEvents> {
 			return await this.request(
 				'system.initialize',
 				{ settings, dataPath, suppressAutoStart },
-				LONG_TIMEOUT_MS
+				INITIALIZATION_TIMEOUT_MS
 			)
 		} catch (error) {
 			await this.stop().catch(() => undefined)

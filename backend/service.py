@@ -508,9 +508,10 @@ class BackendService:
             if self._lifecycle != "ready" or source in self._stopped_sources:
                 return
             generation = self._recording_generations[source]
-            self._latest_voice_utterance_id = utterance_id
-            self._latest_voice_source = source
-            self._latest_voice_generation = generation
+            if source == "voice":
+                self._latest_voice_utterance_id = utterance_id
+                self._latest_voice_source = source
+                self._latest_voice_generation = generation
         self._emit(
             "transcript.final",
             {"utteranceId": utterance_id, "text": text, "source": source},
@@ -521,7 +522,11 @@ class BackendService:
         if not translating and source == "voice":
             self._send_transcript_to_osc(utterance_id, text, source, generation)
         emotion = self._emotion
-        if self._settings["emotion"]["enabled"] and emotion is not None:
+        if (
+            source == "voice"
+            and self._settings["emotion"]["enabled"]
+            and emotion is not None
+        ):
             emotion.submit(utterance_id, text)
 
     def _on_emotion_model_status(self, status: str, device: str | None) -> None:
@@ -544,6 +549,7 @@ class BackendService:
         with self._lock:
             should_apply = (
                 self._settings["emotion"]["enabled"]
+                and self._latest_voice_source == "voice"
                 and utterance_id == self._latest_voice_utterance_id
             )
             osc = self._osc

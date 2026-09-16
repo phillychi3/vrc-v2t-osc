@@ -27,8 +27,8 @@
 	}
 
 	function oscLabel(item: Transcript): string {
-		if (item.source === 'speaker') return '僅顯示'
-		if (item.oscStatus === 'sent') return 'OSC 已送出'
+		if (item.source === 'speaker') return ''
+		if (item.oscStatus === 'sent') return '已送出'
 		if (item.oscStatus === 'pending') return '等待送出'
 		if (item.oscStatus === 'skipped') return oscReasons[item.oscReason ?? ''] ?? '未送出'
 		return ''

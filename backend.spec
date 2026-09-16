@@ -22,7 +22,6 @@ analysis = Analysis(
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
-    excludes=["textual", "textual_dev"],
     noarchive=False,
 )
 pyz = PYZ(analysis.pure)

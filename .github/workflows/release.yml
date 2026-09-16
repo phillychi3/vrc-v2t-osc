@@ -1,0 +1,67 @@
+name: Windows release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require a version tag matching package.json
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import json, os, re
+          version = json.load(open('package.json'))['version']
+          assert os.environ['REF_TYPE'] == 'tag', 'Run this workflow on a version tag'
+          assert re.fullmatch(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?', version), 'Invalid release version'
+          assert os.environ['TAG'] == f'v{version}', 'Tag must match package.json version'
+          PY
+      - run: python scripts/sync-version.py --check
+
+  regression:
+    needs: validate
+    uses: ./.github/workflows/windows.yml
+
+  release:
+    needs: regression
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-installer
+          path: installer
+      - name: Create checksums and draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd installer
+          sha256sum -- *.exe > SHA256SUMS.txt
+          printf 'Windows x64 installer.\n\nValidation: %s\n\nPassed Windows build, UI regression, Python tests and clean-install checks.\n' "$RUN_URL" > release-notes.md
+          if gh release view "$TAG" --json isDraft > existing-release.json 2>/dev/null; then
+            python -c 'import json; assert json.load(open("existing-release.json"))["isDraft"], "Refusing to replace a published release"'
+            gh release upload "$TAG" ./*.exe SHA256SUMS.txt --clobber
+            gh release edit "$TAG" --notes-file release-notes.md
+          else
+            gh release create "$TAG" ./*.exe SHA256SUMS.txt --verify-tag --draft --title "$TAG" --notes-file release-notes.md
+          fi
+          printf 'Release draft: %s\n\nValidation: %s\n' "$(gh release view "$TAG" --json url --jq .url)" "$RUN_URL" >> "$GITHUB_STEP_SUMMARY"

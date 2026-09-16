@@ -14,7 +14,7 @@
 		"build:electron": "vite build --config vite.electron.config.ts && vite build --config vite.preload.config.ts",
 		"dist": "pnpm run build && pnpm run build:backend && electron-builder",
 		"test:packaged-backend": "poetry run python scripts/smoke-packaged-backend.py build/python/vrc-v2t-backend/vrc-v2t-backend.exe",
-		"test:packaged-renderer": "node scripts/smoke-packaged-renderer.mjs \"release/win-unpacked/VRC V2T OSC.exe\"",
+		"test:packaged-renderer": "node scripts/smoke-packaged-renderer.mjs \"release/win-unpacked/VRC2T.exe\"",
 		"preview": "vite preview",
 		"typecheck": "svelte-check --tsconfig ./tsconfig.json --tsgo",
 		"typecheck:watch": "svelte-check --tsconfig ./tsconfig.json --tsgo --watch",

@@ -1,4 +1,4 @@
-import { BrowserWindow, app } from 'electron'
+import { BrowserWindow, app, dialog } from 'electron'
 import { registerIpcHandlers } from './ipc.js'
 import { applySecurityPolicy } from './security.js'
 import { closeSplashWindow, createMainWindow, createSplashWindow, getMainWindow } from './window.js'
@@ -30,7 +30,7 @@ async function bootstrap(): Promise<void> {
 	await app.whenReady()
 
 	applySecurityPolicy()
-	await createSplashWindow()
+	const splash = await createSplashWindow()
 	backend.on('event', (event) => {
 		for (const window of BrowserWindow.getAllWindows())
 			window.webContents.send(IpcChannel.BackendEvent, event)
@@ -43,12 +43,31 @@ async function bootstrap(): Promise<void> {
 	const settingsStore = new SettingsStore(app.getPath('userData'))
 	const settings = await settingsStore.load()
 	registerIpcHandlers(backend, settingsStore, () => !quitting)
-	const initialization = backend.start(settings, app.getPath('userData')).catch((error: Error) => {
-		console.error('Backend initialization failed:', error)
-		for (const window of BrowserWindow.getAllWindows())
-			window.webContents.send(IpcChannel.BackendFailure, error.message)
-	})
 	try {
+		while (!quitting) {
+			try {
+				const state = await backend.start(settings, app.getPath('userData'))
+				if (state.models.speech?.status !== 'ready') throw new Error('語音模型載入失敗')
+				break
+			} catch (error) {
+				if (quitting) return
+				await backend.stop()
+				const { response } = await dialog.showMessageBox(splash, {
+					type: 'error',
+					title: '無法啟動語音模型',
+					message: '語音模型尚未載入完成，請確認網路與模型檔案後重試。',
+					detail: error instanceof Error ? error.message : String(error),
+					buttons: ['重試', '退出'],
+					defaultId: 0,
+					cancelId: 1
+				})
+				if (response === 1) {
+					app.quit()
+					return
+				}
+			}
+		}
+		if (quitting) return
 		const window = await createMainWindow(false)
 		window.show()
 		closeSplashWindow()
@@ -56,7 +75,6 @@ async function bootstrap(): Promise<void> {
 		closeSplashWindow()
 		throw error
 	}
-	await initialization
 
 	app.on('activate', () => {
 		if (BrowserWindow.getAllWindows().length === 0) void createMainWindow()

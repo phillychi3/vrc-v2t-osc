@@ -5,7 +5,7 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { resolve } from 'node:path'
 
-const executable = resolve(process.argv[2] ?? 'release/win-unpacked/VRC V2T OSC.exe')
+const executable = resolve(process.argv[2] ?? 'release/win-unpacked/VRC2T.exe')
 const userData = await mkdtemp(`${tmpdir()}\\vrc-v2t-renderer-smoke-`)
 const port = await availablePort()
 const logs = []

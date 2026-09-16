@@ -1,5 +1,5 @@
 appId: com.phillychi3.vrc-v2t-osc
-productName: VRC V2T OSC
+productName: VRC2T
 directories:
   output: release
   buildResources: icons

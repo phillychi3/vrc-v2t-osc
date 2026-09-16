@@ -399,6 +399,15 @@ class ServiceTests(unittest.TestCase):
         ]
         self.assertEqual(emotion_events[-1]["data"]["emotion"], 2)  # type: ignore[index]
 
+        microphone_id = emotions[0].submitted[0][0]
+        on_transcript("speaker must stay local", "speaker")
+        self.assertEqual(len(emotions[0].submitted), 1)
+        self.assertEqual(oscs[0].faces, [2])
+        self.assertEqual(len(oscs[0].sent), 1)
+        self.assertEqual(service._latest_voice_utterance_id, microphone_id)
+        service._on_emotion_result(microphone_id, 3)
+        self.assertEqual(oscs[0].faces, [2, 3])
+
         service.close()
         self.assertTrue(emotions[0].closed)
 

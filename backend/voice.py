@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import logging
 import os
 import queue
@@ -253,11 +254,14 @@ class VoiceService:
             }
 
     def list_devices(self) -> list[dict[str, object]]:
+        with self._lock:
+            active_audio = self._audio if self._sessions else None
+            self._release_idle_audio_manager()
         try:
             import pyaudiowpatch as pyaudio
         except ImportError as exc:
             raise VoiceError("找不到 PyAudioWPatch，無法列舉錄音裝置") from exc
-        audio = pyaudio.PyAudio()
+        audio = active_audio if active_audio is not None else pyaudio.PyAudio()
         devices: list[dict[str, object]] = []
         try:
             default_input_index: int | None = None
@@ -280,7 +284,7 @@ class VoiceService:
                 host_api = audio.get_host_api_info_by_index(host_api_index)
                 devices.append(
                     {
-                        "id": f"index:{index}",
+                        "id": self._device_id(info),
                         "name": str(info.get("name", f"Input {index}")),
                         "hostApi": str(host_api.get("name", "")),
                         "maxInputChannels": channels,
@@ -316,7 +320,8 @@ class VoiceService:
                     },
                 )
         finally:
-            audio.terminate()
+            if active_audio is None:
+                audio.terminate()
         return devices
 
     def start(self, device_id: str, source: str = "microphone") -> None:
@@ -336,7 +341,7 @@ class VoiceService:
                 if device_id in {"default", "speaker:default"}:
                     device = audio.get_default_wasapi_loopback()
                 else:
-                    speaker_index = self._device_index(device_id)
+                    speaker_index = self._resolve_device_index(audio, device_id, source)
                     if speaker_index is None:
                         raise VoiceError("喇叭裝置 ID 無效")
                     device = audio.get_device_info_by_index(speaker_index)
@@ -346,7 +351,7 @@ class VoiceService:
                 input_rate = int(device["defaultSampleRate"])
                 input_channels = max(1, int(device["maxInputChannels"]))
             else:
-                input_device_index = self._device_index(device_id)
+                input_device_index = self._resolve_device_index(audio, device_id, source)
                 input_rate = 16000
                 input_channels = 1
             import pyaudiowpatch as pyaudio
@@ -440,11 +445,19 @@ class VoiceService:
 
     def _get_audio_manager(self) -> Any:
         with self._lock:
+            self._release_idle_audio_manager()
             if self._audio is None:
                 import pyaudiowpatch as pyaudio
 
                 self._audio = pyaudio.PyAudio()
             return self._audio
+
+    def _release_idle_audio_manager(self) -> None:
+        # PortAudio caches the device list until its last manager terminates.
+        # Never terminate the manager while the other source is capturing.
+        if not self._sessions and self._audio is not None:
+            audio, self._audio = self._audio, None
+            audio.terminate()
 
     def _load_models(
         self,
@@ -567,6 +580,7 @@ class VoiceService:
                 logging.exception("Audio capture failed for %s", session.source)
                 with self._lock:
                     if self._sessions.get(session.source) is session:
+                        session.close_stream()
                         self._sessions.pop(session.source, None)
                 self._close_capture(session)
                 self._on_error(f"{self._source_label(session.source)}擷取失敗：{exc}")
@@ -697,15 +711,35 @@ class VoiceService:
             self._segments.put_nowait(segment)
 
     @staticmethod
-    def _device_index(device_id: str) -> int | None:
-        if device_id == "default":
+    def _device_id(info: dict[str, Any]) -> str:
+        # Numeric PortAudio indices can be reassigned after unplug/replug.
+        identity = repr(
+            (
+                info.get("hostApi"),
+                info.get("name"),
+                bool(info.get("isLoopbackDevice", False)),
+            )
+        )
+        return "device:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _resolve_device_index(cls, audio: Any, device_id: str, source: str) -> int | None:
+        if device_id == "default" and source == "microphone":
             return None
-        if not device_id.startswith("index:"):
-            raise VoiceError("錄音裝置識別碼無效")
-        try:
-            return int(device_id.removeprefix("index:"))
-        except ValueError as exc:
-            raise VoiceError("錄音裝置識別碼無效") from exc
+        if not device_id.startswith("device:"):
+            raise VoiceError("裝置識別碼已過期，請重新整理並選擇裝置")
+        matches = []
+        for index in range(audio.get_device_count()):
+            info = audio.get_device_info_by_index(index)
+            if (
+                cls._device_id(info) == device_id
+                and int(info.get("maxInputChannels", 0)) > 0
+                and bool(info.get("isLoopbackDevice", False)) == (source == "speaker")
+            ):
+                matches.append(index)
+        if len(matches) != 1:
+            raise VoiceError("所選裝置不存在或無法唯一識別，請重新整理並選擇裝置")
+        return matches[0]
 
     @staticmethod
     def _source_label(source: str) -> str:

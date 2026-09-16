@@ -34,7 +34,7 @@ class _Message:
 
 
 # Application pacing policy, not a claimed VRChat server rate limit.
-CHAT_INTERVAL_SECONDS = 1.5
+CHAT_INTERVAL_SECONDS = 1
 CHAT_MAX_LENGTH = 144
 
 

@@ -167,14 +167,63 @@ class VoiceAudioConversionTests(unittest.TestCase):
             on_error=lambda *_args: None,
         )
         with patch.dict("sys.modules", {"pyaudiowpatch": fake_module}):
+            stale_audio = Mock()
+            service._audio = stale_audio
             devices = service.list_devices()
+            stale_audio.terminate.assert_called_once()
+            self.assertIsNone(service._audio)
 
         microphones = [item for item in devices if item["source"] == "microphone"]
         speakers = [item for item in devices if item["source"] == "speaker"]
         self.assertEqual(microphones[0]["id"], "default")
-        self.assertEqual(microphones[1]["id"], "index:1")
+        self.assertEqual(
+            microphones[1]["id"],
+            service._device_id(FakeAudio().get_device_info_by_index(1)),
+        )
         self.assertEqual(speakers[0]["id"], "speaker:default")
-        self.assertEqual(speakers[1]["id"], "index:2")
+        self.assertEqual(
+            speakers[1]["id"], service._device_id(FakeAudio().get_device_info_by_index(2))
+        )
+
+    def test_audio_manager_refresh_preserves_active_capture(self):
+        service = self.make_service()
+        old_audio, fresh_audio = Mock(), Mock()
+        service._audio = old_audio
+        with patch.dict(
+            "sys.modules",
+            {"pyaudiowpatch": SimpleNamespace(PyAudio=Mock(return_value=fresh_audio))},
+        ):
+            self.assertIs(service._get_audio_manager(), fresh_audio)
+            old_audio.terminate.assert_called_once()
+            service._sessions["microphone"] = Mock()
+            self.assertIs(service._get_audio_manager(), fresh_audio)
+            fresh_audio.get_device_count.return_value = 0
+            fresh_audio.get_default_input_device_info.side_effect = IOError
+            fresh_audio.get_default_wasapi_loopback.side_effect = IOError
+            self.assertEqual(service.list_devices(), [])
+            fresh_audio.terminate.assert_not_called()
+
+    def test_selected_device_cannot_silently_become_another_device(self):
+        original = {
+            "name": "My speakers",
+            "hostApi": 2,
+            "isLoopbackDevice": True,
+            "maxInputChannels": 2,
+        }
+        replacement = {**original, "name": "Other speakers"}
+        audio = Mock()
+        audio.get_device_count.return_value = 1
+        audio.get_device_info_by_index.return_value = replacement
+        selected = VoiceService._device_id(original)
+        with self.assertRaises(RuntimeError):
+            VoiceService._resolve_device_index(audio, selected, "speaker")
+        audio.get_device_count.return_value = 2
+        audio.get_device_info_by_index.side_effect = [replacement, original]
+        self.assertEqual(
+            VoiceService._resolve_device_index(audio, selected, "speaker"), 1
+        )
+        with self.assertRaises(RuntimeError):
+            VoiceService._resolve_device_index(audio, "index:0", "speaker")
 
     def test_uses_independent_microphone_and_speaker_languages(self) -> None:
         service = VoiceService(
@@ -292,11 +341,11 @@ class VoiceAudioConversionTests(unittest.TestCase):
         service._ready = True
 
         service.start("default", "microphone")
-        service.start("index:12", "speaker")
+        service.start("speaker:default", "speaker")
 
         self.assertEqual(set(service._sessions), {"microphone", "speaker"})
-        self.assertEqual(fake_audio.opened["input_device_index"], 12)
-        self.assertEqual(fake_audio.opened["rate"], 44100)
+        self.assertEqual(fake_audio.opened["input_device_index"], 9)
+        self.assertEqual(fake_audio.opened["rate"], 48000)
         # Callback mode, opened stopped and started only once the session and
         # its processing thread are registered.
         self.assertIs(fake_audio.opened["start"], False)

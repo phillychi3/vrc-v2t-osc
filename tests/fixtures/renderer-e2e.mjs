@@ -11,7 +11,7 @@ app.setPath('userData', process.argv[2])
 const loadRenderer = serve({ directory: resolve('build/renderer') })
 const settings = {
 	schemaVersion: 1,
-	audio: { deviceId: 'default', speakerDeviceId: 'speaker:default', autoStart: false },
+	audio: { deviceId: 'default', speakerDeviceId: 'index:99', autoStart: false },
 	speech: { model: 'auto', language: 'zh' },
 	translation: {
 		enabled: false,
@@ -58,7 +58,30 @@ function record(source, value) {
 	return { state: value }
 }
 ipcMain.handle('backend:get-state', () => structuredClone(state))
-ipcMain.handle('backend:list-audio-devices', () => ({ devices: [] }))
+let deviceRefreshes = 0
+ipcMain.handle('backend:list-audio-devices', () => {
+	deviceRefreshes++
+	return {
+		devices: [
+			{
+				id: 'default',
+				name: 'Microphone',
+				source: 'microphone',
+				isDefault: true,
+				maxInputChannels: 1,
+				hostApi: ''
+			},
+			{
+				id: 'speaker:default',
+				name: 'Default speaker',
+				source: 'speaker',
+				isDefault: true,
+				maxInputChannels: 2,
+				hostApi: 'WASAPI'
+			}
+		]
+	}
+})
 ipcMain.handle('backend:list-translation-providers', () => ({
 	providers: [{ id: 'transformers', label: 'Local', local: true }]
 }))
@@ -128,7 +151,7 @@ async function run() {
 		)
 		assert.equal(await evaluate(`document.querySelector('.feature-action').disabled`), true)
 		await input('模型載入時也能送字')
-		await waitFor(`document.querySelector('article')?.textContent.includes('OSC 已送出')`)
+		await waitFor(`document.querySelector('article')?.textContent.includes('已送出')`)
 		assert.deepEqual(sent, ['模型載入時也能送字'])
 		evidence.push('model loading disables recording but permits manual text; OSC status rendered')
 
@@ -171,6 +194,26 @@ async function run() {
 		}
 		await evaluate(`document.querySelector('.titlebar-nav').click()`)
 		await waitFor(`document.querySelector('#speech-model')?.value === 'auto'`)
+		assert.equal(await evaluate(`document.querySelector('#speaker-device').value`), 'index:99')
+		const refreshesBefore = deviceRefreshes
+		await evaluate(`document.querySelector('[aria-label="重新整理喇叭裝置"]').click()`)
+		await waitFor(`!document.querySelector('#speaker-device').disabled`)
+		assert.ok(deviceRefreshes > refreshesBefore)
+		await evaluate(`(() => {
+			const select = document.querySelector('#speaker-device');
+			select.value = 'speaker:default'; select.dispatchEvent(new Event('change', { bubbles: true }));
+		})()`)
+		await waitFor(`!document.querySelector('#speaker-device').disabled`)
+		assert.equal(settings.audio.speakerDeviceId, 'speaker:default')
+		await evaluate(`document.querySelector('[aria-label="重新整理喇叭裝置"]').click()`)
+		await waitFor(`!document.querySelector('#speaker-device').disabled`)
+		assert.equal(
+			await evaluate(`document.querySelector('#speaker-device').value`),
+			'speaker:default'
+		)
+		evidence.push(
+			'missing speaker can be replaced by system default; selection survives device refresh'
+		)
 		await evaluate(`(() => {
 		const select = document.querySelector('#speech-model');
 		select.value = 'small'; select.dispatchEvent(new Event('change', { bubbles: true }));

@@ -49,7 +49,7 @@ try {
     }
     if ($installerProcess.ExitCode -ne 0) { throw 'Installer failed' }
     $backendExe = Join-Path $installRoot 'resources/backend/vrc-v2t-backend.exe'
-    $appExe = Join-Path $installRoot 'VRC V2T OSC.exe'
+    $appExe = Join-Path $installRoot 'VRC2T.exe'
     if (-not (Test-Path -LiteralPath $backendExe) -or -not (Test-Path -LiteralPath $appExe)) {
         throw 'Installed application or bundled backend missing'
     }

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { KSelect } from '@ikun-ui/select'
 	import { KSwitch } from '@ikun-ui/switch'
 	import type {
 		AudioDevice,
@@ -47,18 +46,6 @@
 				id: device.id,
 				label: `${device.name}${device.isDefault ? '（預設）' : ''}`
 			}))
-	)
-	const selectedMicrophoneDevice = $derived(
-		microphoneDeviceOptions.find((device) => device.id === settings?.audio.deviceId) ?? {
-			id: settings?.audio.deviceId ?? '',
-			label: settings?.audio.deviceId ?? ''
-		}
-	)
-	const selectedSpeakerDevice = $derived(
-		speakerDeviceOptions.find((device) => device.id === settings?.audio.speakerDeviceId) ?? {
-			id: settings?.audio.speakerDeviceId ?? '',
-			label: settings?.audio.speakerDeviceId ?? ''
-		}
 	)
 
 	let host = $state('127.0.0.1')
@@ -161,41 +148,54 @@
 					{refreshingDevices ? '更新中…' : '重新整理'}
 				</button>
 			</div>
-			<KSelect
-				value={selectedMicrophoneDevice}
-				dataList={microphoneDeviceOptions}
-				labelKey="label"
-				valueKey="id"
-				key="id"
-				placeholder={refreshingDevices ? '載入中…' : '沒有可用的輸入裝置'}
-				disabled={!settings || saving || recording || microphoneDeviceOptions.length === 0}
-				cls="w-full"
-				clsSelect="w-full"
-				attrs={{ id: 'audio-device', 'aria-label': '輸入裝置' }}
-				on:updateValue={(event) => {
-					const option = event.detail as { id?: unknown }
-					if (typeof option?.id === 'string') void onUpdate({ audio: { deviceId: option.id } })
-				}}
-			/>
+			<select
+				id="audio-device"
+				aria-label="輸入裝置"
+				class="field-control"
+				value={settings?.audio.deviceId ?? 'default'}
+				disabled={!settings || saving || recording || refreshingDevices}
+				onchange={(event) => void onUpdate({ audio: { deviceId: event.currentTarget.value } })}
+			>
+				{#if !microphoneDeviceOptions.some((device) => device.id === settings?.audio.deviceId)}
+					<option value={settings?.audio.deviceId ?? 'default'} disabled
+						>所選麥克風目前無法使用</option
+					>
+				{/if}
+				{#each microphoneDeviceOptions as device, index (`${device.id}:${index}`)}
+					<option value={device.id}>{device.label}</option>
+				{/each}
+			</select>
 			<div class="mt-3">
-				<label class="field-label" for="speaker-device">喇叭裝置</label>
-				<KSelect
-					value={selectedSpeakerDevice}
-					dataList={speakerDeviceOptions}
-					labelKey="label"
-					valueKey="id"
-					key="id"
-					placeholder={refreshingDevices ? '載入中…' : '沒有可用的喇叭回放裝置'}
-					disabled={!settings || saving || recording || speakerDeviceOptions.length === 0}
-					cls="w-full"
-					clsSelect="w-full"
-					attrs={{ id: 'speaker-device', 'aria-label': '喇叭裝置' }}
-					on:updateValue={(event) => {
-						const option = event.detail as { id?: unknown }
-						if (typeof option?.id === 'string')
-							void onUpdate({ audio: { speakerDeviceId: option.id } })
-					}}
-				/>
+				<div class="mb-1.5 flex items-center justify-between">
+					<label class="field-label !mb-0" for="speaker-device">喇叭裝置</label>
+					<button
+						type="button"
+						disabled={refreshingDevices || recording}
+						onclick={() => void onRefreshDevices()}
+						class="btn-ghost h-7 px-2 text-[11px] text-accent-600"
+						aria-label="重新整理喇叭裝置"
+					>
+						{refreshingDevices ? '更新中…' : '重新整理'}
+					</button>
+				</div>
+				<select
+					id="speaker-device"
+					aria-label="喇叭裝置"
+					class="field-control"
+					value={settings?.audio.speakerDeviceId ?? 'speaker:default'}
+					disabled={!settings || saving || recording || refreshingDevices}
+					onchange={(event) =>
+						void onUpdate({ audio: { speakerDeviceId: event.currentTarget.value } })}
+				>
+					{#if !speakerDeviceOptions.some((device) => device.id === settings?.audio.speakerDeviceId)}
+						<option value={settings?.audio.speakerDeviceId ?? 'speaker:default'} disabled
+							>所選喇叭目前無法使用</option
+						>
+					{/if}
+					{#each speakerDeviceOptions as device, index (`${device.id}:${index}`)}
+						<option value={device.id}>{device.label}</option>
+					{/each}
+				</select>
 			</div>
 			<p class="field-help">錄音時需先停止才能更換裝置</p>
 			<div class="flex items-center justify-between gap-4 py-2.5">
