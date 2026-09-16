@@ -8,11 +8,10 @@ import test from 'node:test'
 
 // Execute the production bootstrap with OS/UI boundaries replaced. No Electron
 // window, Python process, model download or audio device is touched.
-const source = stripTypeScriptTypes(
-	readFileSync(new URL('../electron/src/main/index.ts', import.meta.url), 'utf8')
-).replace(/^import .*\n/gm, '')
+const source = readFileSync(new URL('../electron/src/main/index.ts', import.meta.url), 'utf8')
 
-async function boot(response = 1) {
+async function boot(response = 1, sourceText = source) {
+	const script = stripTypeScriptTypes(sourceText).replace(/^import .*\r?\n/gm, '')
 	const starts = []
 	const calls = { main: 0, shown: 0, splashClosed: 0, dialogs: 0, stopped: 0, quit: 0 }
 	const instances = {}
@@ -36,7 +35,7 @@ async function boot(response = 1) {
 		getPath: () => 'test-data',
 		quit: () => calls.quit++
 	})
-	runInNewContext(source, {
+	runInNewContext(script, {
 		app,
 		console,
 		process,
@@ -68,6 +67,15 @@ async function boot(response = 1) {
 	await setImmediate()
 	return { starts, calls, backend: instances.backend }
 }
+
+test('bootstrap harness supports Windows CRLF source files', async () => {
+	const { starts, calls } = await boot(1, source.replace(/\r?\n/g, '\r\n'))
+	starts[0].resolve({ models: { speech: { status: 'ready' } } })
+	await setImmediate()
+	assert.equal(calls.main, 1)
+	assert.equal(calls.shown, 1)
+	assert.equal(calls.splashClosed, 1)
+})
 
 test('main window waits for successful speech initialization, not backend.ready', async () => {
 	const { starts, calls, backend } = await boot()
