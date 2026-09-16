@@ -1,3 +1,6 @@
+; electron-builder loads this include before its own MUI2 include. Page
+; functions below expand MUI macros immediately, so load the dependency here.
+!include "MUI2.nsh"
 !include "nsDialogs.nsh"
 
 !ifndef BUILD_UNINSTALLER

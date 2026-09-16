@@ -17,13 +17,14 @@ $include = Join-Path $PSScriptRoot 'installer.nsh'
 $harness = @'
 Unicode true
 RequestExecutionLevel user
-!include "MUI2.nsh"
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
 !define PROJECT_DIR "@ROOT@"
 !define INSTALL_REGISTRY_KEY "@KEY@"
 !define SHELL_CONTEXT HKCU
 !include "@INCLUDE@"
+; electron-builder loads the custom include before installer.nsi loads MUI2.
+!include "MUI2.nsh"
 Name "VRC2T installer test"
 OutFile "@ROOT@\setup-test.exe"
 InstallDir "@ROOT@\app"
