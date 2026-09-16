@@ -8,14 +8,22 @@ files:
   - build/renderer/**/*
   - package.json
 extraResources:
-  - from: build/python/vrc-v2t-backend
+  - from: build/python-cpu/vrc-v2t-backend
     to: backend
     filter:
       - '**/*'
 asar: true
 win:
+  artifactName: VRC2T-${version}-windows-${arch}-setup.${ext}
   icon: icons/windows/icon.ico
   target: nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  include: scripts/installer.nsh
+  installerLanguages:
+    - zh_TW
+    - en_US
 mac:
   icon: icons/macos/icon.icns
   target: dmg

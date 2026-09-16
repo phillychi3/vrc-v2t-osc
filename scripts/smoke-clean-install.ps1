@@ -1,5 +1,6 @@
 param(
-    [Parameter(Mandatory = $true)][string]$Installer
+    [Parameter(Mandatory = $true)][string]$Installer,
+    [ValidateSet('cpu', 'cu126')][string]$Variant = 'cpu'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -32,8 +33,8 @@ function Invoke-BackendCheck([string]$Label, [string]$Argument) {
     }
     if ($process.ExitCode -ne 0) { throw "$Label failed: $($process.ExitCode)" }
     $result = Get-Content -LiteralPath $stdout -Raw | ConvertFrom-Json
-    if (-not $result.ok -or $result.torch -notmatch '\+cpu') {
-        throw "$Label did not report a successful CPU runtime"
+    if (-not $result.ok -or $result.torch -notlike "*+$Variant") {
+        throw "$Label did not report a successful $Variant runtime"
     }
 }
 
@@ -42,7 +43,7 @@ try {
         Format-List | Out-File (Join-Path $evidence 'installer-sha256.txt')
     # NSIS requires /D to be the final argument; do not quote the directory.
     $installerProcess = Start-Process -FilePath $installerPath `
-        -ArgumentList "/S /D=$installRoot" -WindowStyle Hidden -PassThru
+        -ArgumentList "/S /BACKEND=$Variant /D=$installRoot" -WindowStyle Hidden -PassThru
     if (-not $installerProcess.WaitForExit(180000)) {
         Stop-Process -Id $installerProcess.Id -Force
         throw 'Installer timed out'
@@ -104,7 +105,7 @@ try {
     Start-Sleep -Seconds 1
     $remaining = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $backendExe }
     if ($remaining) { throw 'Bundled backend remained after closing Electron' }
-    'PASS: silent install, isolated PATH, CPU runtime, fresh tiny download, offline inference, Electron window and exit' |
+    "PASS: silent install, isolated PATH, $Variant runtime, fresh tiny download, offline CPU inference, Electron window and exit" |
         Set-Content (Join-Path $evidence 'result.txt')
 } catch {
     $_ | Out-String | Set-Content (Join-Path $evidence 'failure.txt')

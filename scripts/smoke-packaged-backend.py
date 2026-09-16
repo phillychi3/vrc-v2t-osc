@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
 import sys
@@ -14,9 +15,11 @@ from backend.settings import default_settings  # noqa: E402
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: smoke-packaged-backend.py <backend executable>")
-    executable = Path(sys.argv[1]).resolve()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("executable", type=Path)
+    parser.add_argument("--variant", choices=("cpu", "cu126"), default="cpu")
+    args = parser.parse_args()
+    executable = args.executable.resolve()
     if not executable.is_file():
         raise SystemExit(f"packaged backend does not exist: {executable}")
 
@@ -31,7 +34,7 @@ def main() -> int:
         return dependency_check.returncode
     dependency_result = json.loads(dependency_check.stdout)
     assert dependency_result["ok"] is True
-    assert "+cpu" in dependency_result["torch"]
+    assert dependency_result["torch"].endswith(f"+{args.variant}"), dependency_result
 
     # This is the real-model integration tier. Keep it small and explicit;
     # the regular protocol tests use a fixture and never load/download models.

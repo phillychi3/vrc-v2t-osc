@@ -1,4 +1,5 @@
 param(
+    [ValidateSet('cpu', 'cu126')][string]$Variant = 'cpu',
     [switch]$RecreateEnvironment
 )
 
@@ -6,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 python (Join-Path $PSScriptRoot 'sync-version.py')
 if ($LASTEXITCODE -ne 0) { throw 'Failed to synchronize application version' }
-$environmentRoot = Join-Path $projectRoot 'build/package-env'
+$environmentRoot = Join-Path $projectRoot "build/package-env-$Variant"
 $packagePython = Join-Path $environmentRoot 'Scripts/python.exe'
 
 if ($RecreateEnvironment -and (Test-Path -LiteralPath $environmentRoot)) {
@@ -24,11 +25,11 @@ if (-not (Test-Path -LiteralPath $packagePython)) {
 }
 
 & $packagePython -m pip install --disable-pip-version-check `
-    --index-url https://download.pytorch.org/whl/cpu `
-    'torch==2.6.0' `
-    'torchaudio==2.6.0'
+    --index-url "https://download.pytorch.org/whl/$Variant" `
+    "torch==2.6.0+$Variant" `
+    "torchaudio==2.6.0+$Variant"
 if ($LASTEXITCODE -ne 0) {
-    throw "CPU Torch installation failed with exit code $LASTEXITCODE"
+    throw "$Variant Torch installation failed with exit code $LASTEXITCODE"
 }
 & $packagePython -m pip install --disable-pip-version-check `
     'numpy==2.2.4' `
@@ -56,8 +57,8 @@ Push-Location $projectRoot
 try {
     & $packagePython -m PyInstaller `
         --noconfirm `
-        --distpath build/python `
-        --workpath build/backend-cpu `
+        --distpath "build/python-$Variant" `
+        --workpath "build/backend-$Variant" `
         backend.spec
     if ($LASTEXITCODE -ne 0) {
         throw "PyInstaller failed with exit code $LASTEXITCODE"

@@ -2,7 +2,7 @@ name: Windows release
 
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -55,8 +55,9 @@ jobs:
         run: |
           set -euo pipefail
           cd installer
+          test -f "VRC2T-${TAG#v}-windows-x64-setup.exe"
           sha256sum -- *.exe > SHA256SUMS.txt
-          printf 'Windows x64 installer.\n\nValidation: %s\n\nPassed Windows build, UI regression, Python tests and clean-install checks.\n' "$RUN_URL" > release-notes.md
+          printf 'pre' "$RUN_URL" > release-notes.md
           if gh release view "$TAG" --json isDraft > existing-release.json 2>/dev/null; then
             python -c 'import json; assert json.load(open("existing-release.json"))["isDraft"], "Refusing to replace a published release"'
             gh release upload "$TAG" ./*.exe SHA256SUMS.txt --clobber

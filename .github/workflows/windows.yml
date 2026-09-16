@@ -30,7 +30,11 @@ jobs:
 
   build:
     runs-on: windows-2022
-    timeout-minutes: 60
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [cpu, cu126]
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       HF_HUB_OFFLINE: '1'
@@ -54,18 +58,53 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: renderer-evidence
+          name: renderer-evidence-${{ matrix.variant }}
           path: build/p5-ui*
           if-no-files-found: warn
-      - name: Build isolated CPU backend
+      - name: Build isolated ${{ matrix.variant }} backend
         shell: pwsh
-        run: ./scripts/build-backend.ps1
+        run: ./scripts/build-backend.ps1 -Variant ${{ matrix.variant }}
       - name: Python regression
-        run: ./build/package-env/Scripts/python.exe -m unittest discover -s tests -t .
+        run: ./build/package-env-${{ matrix.variant }}/Scripts/python.exe -m unittest discover -s tests -t .
       - name: Frozen runtime and protocol
-        run: ./build/package-env/Scripts/python.exe scripts/smoke-packaged-backend.py build/python/vrc-v2t-backend/vrc-v2t-backend.exe
-      - name: Build Windows installer
+        run: ./build/package-env-${{ matrix.variant }}/Scripts/python.exe scripts/smoke-packaged-backend.py build/python-${{ matrix.variant }}/vrc-v2t-backend/vrc-v2t-backend.exe --variant ${{ matrix.variant }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backend-${{ matrix.variant }}
+          path: build/python-${{ matrix.variant }}/vrc-v2t-backend
+          if-no-files-found: error
+          retention-days: 1
+
+  installer:
+    needs: build
+    runs-on: windows-2022
+    timeout-minutes: 60
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-cpu
+          path: build/python-cpu/vrc-v2t-backend
+      - uses: actions/download-artifact@v4
+        with:
+          name: backend-cu126
+          path: build/python-cu126/vrc-v2t-backend
+      - name: Build installer with CPU and GPU choices
         run: pnpm exec electron-builder --win nsis --x64 --publish never
+      - name: Installer choice and reinstall regression
+        shell: pwsh
+        run: ./scripts/test-installer.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: windows-installer
@@ -74,9 +113,13 @@ jobs:
           retention-days: 7
 
   clean-install:
-    needs: build
+    needs: installer
     runs-on: windows-2022
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [cpu, cu126]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -85,11 +128,11 @@ jobs:
           path: installer
       - name: Install and test without development tools on PATH
         shell: pwsh
-        run: ./scripts/smoke-clean-install.ps1 -Installer (Get-ChildItem installer/*.exe | Select-Object -First 1).FullName
+        run: ./scripts/smoke-clean-install.ps1 -Installer (Get-ChildItem installer/*.exe | Select-Object -First 1).FullName -Variant ${{ matrix.variant }}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: clean-install-evidence
+          name: clean-install-evidence-${{ matrix.variant }}
           path: build/clean-install-evidence/*
           if-no-files-found: warn
           retention-days: 7
