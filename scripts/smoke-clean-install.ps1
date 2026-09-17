@@ -45,7 +45,7 @@ try {
     # The web installer unpacks the app package and the selected backend, which
     # is several gigabytes for CUDA, so allow far more than a local copy needs.
     $installerProcess = Start-Process -FilePath $installerPath `
-        -ArgumentList "/S /BACKEND=$Variant /D=$installRoot" -WindowStyle Hidden -PassThru
+        -ArgumentList "/S /BACKEND=$Variant /EMOTION=yes /D=$installRoot" -WindowStyle Hidden -PassThru
     if (-not $installerProcess.WaitForExit(900000)) {
         Stop-Process -Id $installerProcess.Id -Force
         throw 'Installer timed out'
@@ -53,8 +53,12 @@ try {
     if ($installerProcess.ExitCode -ne 0) { throw 'Installer failed' }
     $backendExe = Join-Path $installRoot 'resources/backend/vrc-v2t-backend.exe'
     $appExe = Join-Path $installRoot 'VRC2T.exe'
+    $emotionModel = Join-Path $installRoot 'resources/models/emotion/model.onnx'
     if (-not (Test-Path -LiteralPath $backendExe) -or -not (Test-Path -LiteralPath $appExe)) {
-        throw 'Installed application or bundled backend missing'
+        throw 'Installed application or downloaded backend missing'
+    }
+    if (-not (Test-Path -LiteralPath $emotionModel)) {
+        throw 'Optional emotion model was requested but not installed'
     }
 
     # Hosted runners have developer tools installed. Hide them for child processes;

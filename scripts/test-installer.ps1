@@ -50,6 +50,10 @@ foreach ($variant in 'cpu', 'cu126') {
     Set-Content (Join-Path $root 'runtime.txt') $variant
     Set-Content (Join-Path $root '_internal/native/library.txt') "nested $variant library"
 }
+$emotionSource = Join-Path $testRoot 'build/models/emotion'
+New-Item -ItemType Directory -Force -Path $emotionSource | Out-Null
+Set-Content (Join-Path $emotionSource 'model.onnx') 'stand-in emotion model'
+Set-Content (Join-Path $emotionSource 'tokenizer.json') '{}'
 
 # Reserve a loopback port, then let the compiled installer download from it.
 $reservation = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
@@ -57,18 +61,18 @@ $reservation.Start()
 $port = $reservation.LocalEndpoint.Port
 $reservation.Stop()
 $payload = Join-Path $testRoot 'build/installer-payload'
-$env:VRC_BACKEND_BASE_URL = "http://127.0.0.1:$port"
-# The fixture archives have no vrc-v2t-backend.exe to check for.
+$env:VRC_ASSET_BASE_URL = "http://127.0.0.1:$port"
+# The stand-in backends have no vrc-v2t-backend.exe to check for.
 $env:VRC_BACKEND_ENTRY = 'runtime.txt'
 try {
-    node (Join-Path $PSScriptRoot 'prepare-backends.cjs') $testRoot
+    node (Join-Path $PSScriptRoot 'prepare-assets.cjs') $testRoot
     if ($LASTEXITCODE -ne 0) { throw 'Installer fixture archives failed' }
 } finally {
-    Remove-Item Env:VRC_BACKEND_BASE_URL, Env:VRC_BACKEND_ENTRY
+    Remove-Item Env:VRC_ASSET_BASE_URL, Env:VRC_BACKEND_ENTRY
 }
-$assets = Get-Content (Join-Path $payload 'backend-assets.json') -Raw | ConvertFrom-Json
+$assets = Get-Content (Join-Path $payload 'installer-assets.json') -Raw | ConvertFrom-Json
 $archiveOf = @{}
-foreach ($asset in $assets.assets) { $archiveOf[$asset.variant] = $asset.name }
+foreach ($asset in $assets.assets) { $archiveOf[$asset.id] = $asset.name }
 
 $registryKey = 'Software\VRC2T-InstallerTest-' + [guid]::NewGuid()
 $include = Join-Path $PSScriptRoot 'installer.nsh'
@@ -99,13 +103,9 @@ Function .onInit
   !insertmacro customInit
 FunctionEnd
 Section
-  ; The web installer extracts an app package that carries no backend, so only
-  ; a stale directory from an interrupted install can be present here.
+  ; The web installer extracts an app package that carries neither the backend
+  ; nor the model, so customInstall has to create both directories itself.
   SetOutPath "$INSTDIR"
-  CreateDirectory "$INSTDIR\resources\backend"
-  FileOpen $0 "$INSTDIR\resources\backend\stale.txt" w
-  FileWrite $0 "stale"
-  FileClose $0
   !insertmacro customInstall
 SectionEnd
 '@
@@ -114,13 +114,15 @@ $harness = $harness.Replace('@ROOT@', $testRoot).Replace('@KEY@', $registryKey).
     Replace('@PLUGINS@', $pluginDir)
 $harnessFile = Join-Path $testRoot 'harness.nsi'
 Set-Content -LiteralPath $harnessFile -Value $harness -Encoding utf8
-# Match electron-builder's compressor. The backends are already 7-Zip archives.
+# Match electron-builder's compressor. The assets are already 7-Zip archives.
 $compilerOutput = & $Makensis /WX /V3 '/XSetCompressor zlib' $harnessFile 2>&1
 $compilerExitCode = $LASTEXITCODE
 $compilerOutput | Write-Output
 if ($compilerExitCode -ne 0) { throw 'Installer test harness did not compile' }
 $setup = Join-Path $testRoot 'setup-test.exe'
 $appRoot = Join-Path $testRoot 'app'
+$backendDir = Join-Path $appRoot 'resources/backend'
+$emotionDir = Join-Path $appRoot 'resources/models/emotion'
 
 function Start-Payload {
     $process = Start-Process -FilePath 'node' `
@@ -148,59 +150,79 @@ function Invoke-Setup([string]$Option) {
     return $child.ExitCode
 }
 
-function Invoke-Install([string]$Option, [string]$Expected) {
+function Invoke-Install([string]$Option, [string]$Expected, [bool]$WithEmotion) {
     $code = Invoke-Setup $Option
     if ($code -ne 0) { throw "Installer failed: $code" }
-    $backend = Join-Path $appRoot 'resources/backend'
-    if ((Get-Content (Join-Path $backend 'runtime.txt') -Raw).Trim() -ne $Expected) {
+    if ((Get-Content (Join-Path $backendDir 'runtime.txt') -Raw).Trim() -ne $Expected) {
         throw "Expected $Expected backend"
     }
-    if (Test-Path (Join-Path $backend 'stale.txt')) { throw 'Stale backend directory survived' }
+    if (Test-Path (Join-Path $backendDir 'stale.txt')) { throw 'Stale backend directory survived' }
     $unwanted = if ($Expected -eq 'cpu') { 'cu126-only.txt' } else { 'cpu-only.txt' }
-    if (Test-Path (Join-Path $backend $unwanted)) { throw "Mixed backends: $unwanted" }
-    $nested = Join-Path $backend '_internal/native/library.txt'
+    if (Test-Path (Join-Path $backendDir $unwanted)) { throw "Mixed backends: $unwanted" }
+    $nested = Join-Path $backendDir '_internal/native/library.txt'
     if ((Get-Content $nested -Raw).Trim() -ne "nested $Expected library") {
         throw 'Archive directory structure was not preserved'
     }
+    $model = Join-Path $emotionDir 'model.onnx'
+    if ($WithEmotion) {
+        if (-not (Test-Path $model)) { throw 'Emotion model was requested but not installed' }
+        if (Test-Path (Join-Path $emotionDir 'old.txt')) { throw 'Stale emotion model survived' }
+    } elseif (Test-Path $emotionDir) {
+        throw 'Emotion model was installed without being requested'
+    }
 }
 
-function Assert-Rejected([string]$Option, [string]$Message) {
+function Assert-Rejected([string]$Option, [string]$Variant, [string]$Emotion, [string]$Message) {
     if ((Invoke-Setup $Option) -ne 2) { throw $Message }
-    if ((Get-ItemProperty -LiteralPath "HKCU:\$registryKey" -ErrorAction SilentlyContinue).BackendVariant -eq 'cu126') {
-        throw 'A failed install persisted the GPU selection'
+    $stored = Get-ItemProperty -LiteralPath "HKCU:\$registryKey" -ErrorAction SilentlyContinue
+    if ($stored.BackendVariant -ne $Variant -or $stored.EmotionModel -ne $Emotion) {
+        throw "A failed install changed the remembered selection: $Message"
     }
 }
 
 $server = $null
 try {
     $server = Start-Payload
-    Invoke-Install '' 'cpu'
-    Invoke-Install '/BACKEND=cu126' 'cu126'
-    Invoke-Install '' 'cu126'
-    Invoke-Install '/BACKEND=cpu' 'cpu'
-    Assert-Rejected '/BACKEND=invalid' 'Invalid backend option was not rejected'
+    # Nothing exists yet: the installer has to create both directories.
+    Invoke-Install '' 'cpu' $false
 
-    # A damaged download must fail the install and not persist the GPU choice.
-    $served = Join-Path $payload $archiveOf['cu126']
-    $intact = "$served.intact"
-    Move-Item -LiteralPath $served -Destination $intact
-    Set-Content -LiteralPath $served -Value 'corrupt archive'
-    Assert-Rejected '/BACKEND=cu126' 'Corrupt download was not rejected'
-    Remove-Item -LiteralPath $served
-    Move-Item -LiteralPath $intact -Destination $served
+    # Leftovers from an interrupted install must be replaced, not merged.
+    Set-Content (Join-Path $backendDir 'stale.txt') 'stale'
+    New-Item -ItemType Directory -Force -Path $emotionDir | Out-Null
+    Set-Content (Join-Path $emotionDir 'old.txt') 'old'
+    Invoke-Install '/BACKEND=cu126 /EMOTION=yes' 'cu126' $true
 
-    # An archive beside the installer is used instead of downloading.
+    Invoke-Install '' 'cu126' $true
+    Invoke-Install '/BACKEND=cpu /EMOTION=no' 'cpu' $false
+    Assert-Rejected '/BACKEND=invalid' 'cpu' 'no' 'Invalid backend option was not rejected'
+    Assert-Rejected '/EMOTION=maybe' 'cpu' 'no' 'Invalid emotion option was not rejected'
+
+    # A damaged download must fail the install and not persist the selection.
+    foreach ($case in @{ id = 'cu126'; option = '/BACKEND=cu126' },
+        @{ id = 'emotion'; option = '/EMOTION=yes' }) {
+        $served = Join-Path $payload $archiveOf[$case.id]
+        $intact = "$served.intact"
+        Move-Item -LiteralPath $served -Destination $intact
+        Set-Content -LiteralPath $served -Value 'corrupt archive'
+        Assert-Rejected $case.option 'cpu' 'no' "Corrupt $($case.id) download was not rejected"
+        Remove-Item -LiteralPath $served
+        Move-Item -LiteralPath $intact -Destination $served
+    }
+
+    # Archives beside the installer are used instead of downloading.
     Stop-Process -Id $server.Id -Force
     $server = $null
     Copy-Item -LiteralPath (Join-Path $payload $archiveOf['cpu']) -Destination $testRoot
-    Invoke-Install '/BACKEND=cpu' 'cpu'
+    Copy-Item -LiteralPath (Join-Path $payload $archiveOf['emotion']) -Destination $testRoot
+    Invoke-Install '/BACKEND=cpu /EMOTION=yes' 'cpu' $true
     # A local archive that does not match this build is ignored, not trusted.
     Set-Content -LiteralPath (Join-Path $testRoot $archiveOf['cpu']) -Value 'wrong archive'
-    Assert-Rejected '/BACKEND=cpu' 'A mismatched local archive was not rejected'
+    Assert-Rejected '/BACKEND=cpu' 'cpu' 'yes' 'A mismatched local archive was not rejected'
 
-    Write-Output ('PASS: CPU default, GPU selection, nested files, remembered selection, ' +
-        'GPU-to-CPU switch, stale directory replacement, invalid option, corrupt download, ' +
-        'offline install from a local archive and mismatched local archive rejection')
+    Write-Output ('PASS: fresh install, GPU and emotion selection, nested files, remembered ' +
+        'selection, switching both off, stale directory replacement, invalid options, corrupt ' +
+        'backend and emotion downloads, offline install from local archives and mismatched ' +
+        'local archive rejection')
     Write-Output "Interactive test installer: $setup"
 } finally {
     if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force }

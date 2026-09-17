@@ -121,11 +121,11 @@ jobs:
         with:
           name: emotion-onnx
           path: build/models/emotion
-      - name: Pack both backends as downloadable release assets
-        run: pnpm prepare:backends
+      - name: Pack the backends and emotion model as release assets
+        run: pnpm prepare:assets
       - name: Build web installer
-        # The app package carries the shared emotion model; the selected
-        # backend is downloaded by the installer.
+        # The app package carries only Electron and the frontend; the
+        # selected backend and the optional emotion model are downloaded.
         run: pnpm exec electron-builder --win nsis-web --x64 --publish never
       - name: Installer choice, download and reinstall regression
         shell: pwsh
@@ -148,6 +148,12 @@ jobs:
           path: build/installer-payload/vrc2t-backend-cu126-*.7z
           if-no-files-found: error
           retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-emotion
+          path: build/installer-payload/vrc2t-emotion-*.7z
+          if-no-files-found: error
+          retention-days: 7
 
   clean-install:
     needs: installer
@@ -168,6 +174,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: windows-backend-${{ matrix.variant }}
+          path: installer
+      # The emotion self-test needs the optional model, so install it here.
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-emotion
           path: installer
       - name: Install and test without development tools on PATH
         shell: pwsh

@@ -53,6 +53,10 @@ jobs:
         with:
           name: windows-backend-cu126
           path: installer
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-emotion
+          path: installer
       - name: Create checksums and draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -70,6 +74,7 @@ jobs:
           test -f "vrc2t-${VERSION}-x64.nsis.7z"
           test -f "vrc2t-backend-cpu-${VERSION}-x64.7z"
           test -f "vrc2t-backend-cu126-${VERSION}-x64.7z"
+          test -f "vrc2t-emotion-${VERSION}.7z"
           sha256sum -- *.exe *.7z > SHA256SUMS.txt
           printf 'pre' "$RUN_URL" > release-notes.md
           if gh release view "$TAG" --json isDraft > existing-release.json 2>/dev/null; then

@@ -7,14 +7,10 @@ files:
   - build/electron/**/*
   - build/renderer/**/*
   - package.json
-extraResources:
-  - from: build/models/emotion
-    to: models/emotion
-    filter:
-      - '**/*'
 asar: true
-# Both backends are published as separate release assets and downloaded by the
-# web installer; see scripts/prepare-backends.cjs and scripts/installer.nsh.
+# The backends and the optional emotion model are published as separate release
+# assets and downloaded by the web installer, so nothing large ships inside the
+# app package; see scripts/prepare-assets.cjs and scripts/installer.nsh.
 publish:
   provider: github
   owner: phillychi3

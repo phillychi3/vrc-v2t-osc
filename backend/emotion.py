@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import queue
+import sys
 import threading
 from collections.abc import Callable
 from typing import Any
@@ -110,10 +111,14 @@ class EmotionService:
 
             directory = emotion_model_directory()
             if not (directory / "model.onnx").is_file():
-                raise FileNotFoundError(
-                    "缺少情緒 ONNX 模型，請先執行 scripts/export-emotion.py："
-                    + str(directory)
+                # The installer only downloads this model when the user ticks
+                # the box, so a packaged build can legitimately be without it.
+                hint = (
+                    "重新執行安裝程式並勾選「安裝情緒辨識模型」"
+                    if getattr(sys, "frozen", False)
+                    else "請先執行 scripts/export-emotion.py"
                 )
+                raise FileNotFoundError(f"缺少情緒 ONNX 模型，{hint}：{directory}")
             tokenizer = AutoTokenizer.from_pretrained(
                 str(directory), local_files_only=True
             )
