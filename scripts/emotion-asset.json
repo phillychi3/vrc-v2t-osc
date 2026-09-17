@@ -6,8 +6,8 @@
 	"name": "vrc2t-emotion-v1.7z",
 	"entry": "model.onnx",
 	"url": "https://github.com/phillychi3/vrc-v2t-osc/releases/download/emotion-v1/vrc2t-emotion-v1.7z",
-	"bytes": 0,
-	"unpackedBytes": 0,
-	"sha512": "",
-	"sha256": ""
+	"bytes": 680624768,
+	"unpackedBytes": 1136929098,
+	"sha512": "8A263AFF1363407E1E97381AA63C2DF2E165EDEC4F263D7148449E042560D57FFD11857E4DDF1B76DCF42A499979899D1AF59785AB7F9F4D03516983BAA0A76E",
+	"sha256": "F0E6CADA6BF11E2457B9A37E909E3A1BF38859123701A197416042489571EE1D"
 }
