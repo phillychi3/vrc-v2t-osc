@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 python (Join-Path $PSScriptRoot 'sync-version.py')
 if ($LASTEXITCODE -ne 0) { throw 'Failed to synchronize application version' }
-$environmentRoot = Join-Path $projectRoot "build/package-env-$Variant"
+$environmentRoot = Join-Path $projectRoot "build/runtime-env-$Variant"
 $packagePython = Join-Path $environmentRoot 'Scripts/python.exe'
 
 if ($RecreateEnvironment -and (Test-Path -LiteralPath $environmentRoot)) {
@@ -24,37 +24,23 @@ if (-not (Test-Path -LiteralPath $packagePython)) {
     if ($LASTEXITCODE -ne 0) { throw 'Failed to create packaging environment' }
 }
 
-& $packagePython -m pip install --disable-pip-version-check `
-    --index-url "https://download.pytorch.org/whl/$Variant" `
-    "torch==2.6.0+$Variant" `
-    "torchaudio==2.6.0+$Variant"
-if ($LASTEXITCODE -ne 0) {
-    throw "$Variant Torch installation failed with exit code $LASTEXITCODE"
-}
-& $packagePython -m pip install --disable-pip-version-check `
-    'numpy==2.2.4' `
-    'PyAudioWPatch==0.2.12.8' `
-    'pyinstaller==6.22.2' `
-    'python-osc==1.9.3' `
-    'pydub==0.25.1' `
-    "audioop-lts==0.2.2; python_version >= '3.13'" `
-    'sentencepiece==0.2.1' `
-    'setuptools==78.1.0' `
-    'silero-vad==6.2.1' `
-    'transformers==4.51.3' `
-    'wheel'
+& $packagePython -m pip --no-input --keyring-provider disabled install --disable-pip-version-check --no-cache-dir `
+    -r (Join-Path $PSScriptRoot 'requirements-runtime.txt') 'pyinstaller==6.22.2'
 if ($LASTEXITCODE -ne 0) {
     throw "Backend dependency installation failed with exit code $LASTEXITCODE"
 }
-& $packagePython -m pip install --disable-pip-version-check `
-    --no-build-isolation `
-    'openai-whisper==20240930'
-if ($LASTEXITCODE -ne 0) {
-    throw "Whisper installation failed with exit code $LASTEXITCODE"
+if ($Variant -eq 'cu126') {
+    & $packagePython -m pip --no-input --keyring-provider disabled install --disable-pip-version-check --no-cache-dir `
+        'nvidia-cublas-cu12==12.6.4.1' 'nvidia-cudnn-cu12==9.5.1.17' 'nvidia-cuda-runtime-cu12==12.6.77'
+    if ($LASTEXITCODE -ne 0) { throw 'CUDA runtime installation failed' }
 }
+& $packagePython -c "import importlib.util; assert importlib.util.find_spec('torch') is None, 'Runtime environment contains Torch; recreate it'"
+if ($LASTEXITCODE -ne 0) { throw 'Runtime dependency isolation failed' }
 
 Push-Location $projectRoot
 try {
+    $previousVariant = $env:VRC_BUILD_VARIANT
+    $env:VRC_BUILD_VARIANT = $Variant
     & $packagePython -m PyInstaller `
         --noconfirm `
         --distpath "build/python-$Variant" `
@@ -65,5 +51,6 @@ try {
     }
 }
 finally {
+    $env:VRC_BUILD_VARIANT = $previousVariant
     Pop-Location
 }

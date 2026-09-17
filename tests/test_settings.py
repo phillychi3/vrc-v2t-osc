@@ -11,10 +11,10 @@ class SettingsTests(unittest.TestCase):
         self.assertFalse(settings["audio"]["autoStart"])
         self.assertEqual(settings["audio"]["speakerDeviceId"], "speaker:default")
         self.assertFalse(settings["translation"]["enabled"])
-        self.assertEqual(settings["translation"]["provider"], "transformers")
+        self.assertEqual(settings["translation"]["provider"], "onnx")
         self.assertEqual(
             settings["translation"]["model"],
-            "facebook/nllb-200-distilled-600M",
+            "venddair/nllb-200-distilled-600M-onnx",
         )
         self.assertEqual(settings["translation"]["deeplPlan"], "free")
 
@@ -39,7 +39,7 @@ class SettingsTests(unittest.TestCase):
                 "translation": {
                     "enabled": True,
                     "provider": "libretranslate",
-                    "model": "facebook/nllb-200-distilled-1.3B",
+                    "model": "venddair/nllb-200-distilled-600M-onnx",
                     "sourceLanguage": "auto",
                     "targetLanguage": "zh",
                     "endpoint": "https://translate.example.test",

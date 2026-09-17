@@ -33,7 +33,7 @@ function Invoke-BackendCheck([string]$Label, [string]$Argument) {
     }
     if ($process.ExitCode -ne 0) { throw "$Label failed: $($process.ExitCode)" }
     $result = Get-Content -LiteralPath $stdout -Raw | ConvertFrom-Json
-    if (-not $result.ok -or $result.torch -notlike "*+$Variant") {
+    if (-not $result.ok -or $result.variant -ne $Variant -or $result.pytorch -ne $false) {
         throw "$Label did not report a successful $Variant runtime"
     }
 }
@@ -42,9 +42,11 @@ try {
     Get-FileHash -LiteralPath $installerPath -Algorithm SHA256 |
         Format-List | Out-File (Join-Path $evidence 'installer-sha256.txt')
     # NSIS requires /D to be the final argument; do not quote the directory.
+    # The web installer unpacks the app package and the selected backend, which
+    # is several gigabytes for CUDA, so allow far more than a local copy needs.
     $installerProcess = Start-Process -FilePath $installerPath `
         -ArgumentList "/S /BACKEND=$Variant /D=$installRoot" -WindowStyle Hidden -PassThru
-    if (-not $installerProcess.WaitForExit(180000)) {
+    if (-not $installerProcess.WaitForExit(900000)) {
         Stop-Process -Id $installerProcess.Id -Force
         throw 'Installer timed out'
     }
@@ -64,14 +66,14 @@ try {
         throw 'Development tools are still reachable on PATH'
     }
     Invoke-BackendCheck 'native-runtime' '--self-test'
+    Invoke-BackendCheck 'shared-emotion-onnx' '--self-test-emotion'
     Invoke-BackendCheck 'first-download-inference' '--self-test-model'
-    $modelFile = Join-Path $cacheRoot 'whisper/tiny.pt'
-    if (-not (Test-Path -LiteralPath $modelFile)) { throw 'Fresh model cache was not populated' }
+    $modelFile = Get-ChildItem -LiteralPath $env:HF_HOME -Recurse -Filter model.bin -File | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $modelFile) { throw 'Fresh CTranslate2 model cache was not populated' }
     Get-FileHash -LiteralPath $modelFile -Algorithm SHA256 |
         Format-List | Out-File (Join-Path $evidence 'model-sha256.txt')
 
-    # Enforce offline execution for this test executable, including Whisper's
-    # direct HTTP downloads (HF_HUB_OFFLINE alone does not block those).
+    # Enforce offline execution for the whole frozen executable.
     New-NetFirewallRule -DisplayName $ruleName -Direction Outbound -Action Block `
         -Program $backendExe -Profile Any | Out-Null
     $env:HF_HUB_OFFLINE = '1'
@@ -82,7 +84,7 @@ try {
         audio = @{ deviceId = 'default'; speakerDeviceId = 'speaker:default'; autoStart = $false }
         speech = @{ model = 'tiny'; language = 'zh' }
         translation = @{
-            enabled = $false; provider = 'transformers'; model = 'facebook/nllb-200-distilled-600M'
+            enabled = $false; provider = 'onnx'; model = 'venddair/nllb-200-distilled-600M-onnx'
             sourceLanguage = 'zh'; targetLanguage = 'en'; endpoint = 'http://127.0.0.1:5000'
             apiKey = ''; deeplPlan = 'free'; deeplApiKey = ''
         }
@@ -105,7 +107,7 @@ try {
     Start-Sleep -Seconds 1
     $remaining = Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -eq $backendExe }
     if ($remaining) { throw 'Bundled backend remained after closing Electron' }
-    "PASS: silent install, isolated PATH, $Variant runtime, fresh tiny download, offline CPU inference, Electron window and exit" |
+    "PASS: silent web install, isolated PATH, $Variant runtime, fresh tiny download, offline CPU inference, Electron window and exit" |
         Set-Content (Join-Path $evidence 'result.txt')
 } catch {
     $_ | Out-String | Set-Content (Join-Path $evidence 'failure.txt')

@@ -17,6 +17,7 @@ from typing import Any
 
 from backend.inference import inference_lock
 from backend.audio import ResampleState, normalize_audio
+from backend.runtime import backend_variant, configure_native_runtime
 
 
 ModelStatusHandler = Callable[[str, str, str | None], None]
@@ -227,15 +228,10 @@ class VoiceService:
                 return
         self._on_model_status("loading", None)
         try:
-            # Keep imports and model construction on the protocol thread. Apart
-            # from avoiding PyInstaller's frozen-import deadlock, this prevents
-            # PyTorch's thread-local device mode from sporadically constructing
-            # Whisper on the weightless meta device after rapid app restarts.
-            import torch
-            import whisper
-            from silero_vad import get_speech_timestamps, load_silero_vad
-
-            torch.set_default_device("cpu")
+            configure_native_runtime()
+            import ctranslate2
+            from faster_whisper import WhisperModel
+            from faster_whisper.vad import get_speech_timestamps, get_vad_model
         except Exception as exc:
             logging.exception("Failed to load speech runtime")
             if not self._closed.is_set():
@@ -244,7 +240,7 @@ class VoiceService:
             return
         if self._closed.is_set():
             return
-        self._load_models(torch, whisper, get_speech_timestamps, load_silero_vad)
+        self._load_models(ctranslate2, WhisperModel, get_speech_timestamps, get_vad_model)
 
     def set_languages(self, microphone_language: str, speaker_language: str) -> None:
         with self._lock:
@@ -461,32 +457,63 @@ class VoiceService:
 
     def _load_models(
         self,
-        torch: Any,
-        whisper: Any,
+        ctranslate2: Any,
+        whisper_model: Any,
         get_speech_timestamps: Any,
-        load_silero_vad: Any,
+        get_vad_model: Any,
     ) -> None:
         try:
-            # Silero sets the process-wide Torch thread count to one on import.
-            # Give CPU Whisper a bounded budget, leaving room for VRChat.
-            torch.set_num_threads(min(4, max(1, (os.cpu_count() or 2) // 2)))
-            # Pin implicit module allocations to real CPU storage.
-            torch.set_default_device("cpu")
+            import numpy as np
+
+            threads = min(4, max(1, (os.cpu_count() or 2) // 2))
+            device = "cpu"
+            if backend_variant() != "cpu":
+                try:
+                    if ctranslate2.get_cuda_device_count() > 0:
+                        device = "cuda"
+                except RuntimeError:
+                    logging.warning("CUDA detection failed; using CPU", exc_info=True)
+
+            def create_model(target: str):
+                name = self._model_name
+                if name == "auto":
+                    name = "large-v3-turbo" if target == "cuda" else "base"
+                compute_type = "int8" if target == "cpu" else "float16"
+                candidate = whisper_model(
+                    name,
+                    device=target,
+                    compute_type=compute_type,
+                    cpu_threads=threads,
+                    num_workers=1,
+                )
+                # CUDA DLLs may load only on first inference. Validate before
+                # reporting ready, and consume the lazy segments here too.
+                segments, _ = candidate.transcribe(
+                    np.zeros(16000, dtype=np.float32), language="en", beam_size=1
+                )
+                list(segments)
+                return candidate, name
+
             with contextlib.redirect_stdout(sys.stderr):
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                model_name = self._model_name
-                if model_name == "auto":
-                    model_name = "large-v3-turbo" if device == "cuda" else "base"
-                model = whisper.load_model(model_name, device=device)
-                vad_model = load_silero_vad()
+                try:
+                    model, model_name = create_model(device)
+                except (RuntimeError, OSError):
+                    if device != "cuda":
+                        raise
+                    logging.warning(
+                        "CUDA initialization failed; falling back to CPU", exc_info=True
+                    )
+                    device = "cpu"
+                    model, model_name = create_model(device)
+                vad_model = get_vad_model()
+                vad_model(np.zeros(512, dtype=np.float32))
             if self._closed.is_set():
                 return
-            device = str(next(model.parameters()).device)
             logging.info(
                 "Speech model=%s device=%s CPU threads=%d",
                 model_name,
                 device,
-                torch.get_num_threads(),
+                threads,
             )
             with self._lock:
                 self._model = model
@@ -515,7 +542,6 @@ class VoiceService:
         utterance = _UtteranceBuffer(sample_rate=rate)
         try:
             import numpy as np
-            import torch
 
             while not session.stop_event.is_set() and not self._closed.is_set():
                 audio_data = session.next_buffer(_FRAME_POLL_SECONDS)
@@ -554,13 +580,11 @@ class VoiceService:
                 rolling = rolling[-rate // 2 :]
                 timestamps = []
                 if len(rolling) >= rate * 3 // 10:
-                    tensor = torch.tensor(rolling, dtype=torch.float32) / 32768.0
+                    tensor = np.asarray(rolling, dtype=np.float32) / 32768.0
                     with self._vad_lock:
                         timestamps = self._get_speech_timestamps(
                             tensor,
-                            self._vad_model,
                             threshold=0.6,
-                            return_seconds=False,
                             min_speech_duration_ms=300,
                             min_silence_duration_ms=800,
                         )
@@ -611,23 +635,22 @@ class VoiceService:
                     language = self._languages[
                         "speaker" if transcript_source == "speaker" else "voice"
                     ]
-                # Only `text` is read below, so word timestamps are skipped: they
-                # buy nothing here and force Whisper onto the numba DTW fallback
-                # whenever Triton cannot find a CUDA toolkit.
                 with inference_lock():
                     wait_seconds = time.monotonic() - queued_at
                     stale = wait_seconds > _MAX_SEGMENT_WAIT_SECONDS
                     if not stale:
                         started_at = time.monotonic()
-                        result = self._model.transcribe(
+                        segments, _ = self._model.transcribe(
                             audio,
                             language=language,
                             task="transcribe",
                             temperature=0.0,
-                            fp16=str(next(self._model.parameters()).device).startswith(
-                                "cuda"
-                            ),
+                            beam_size=1,
+                            condition_on_previous_text=False,
+                            vad_filter=False,  # Capture already applies built-in VAD.
                         )
+                        # Inference is lazy: keep iteration inside the lock.
+                        text = "".join(part.text for part in segments).strip()
                 if stale:
                     logging.warning(
                         "Dropped stale %s speech after %.1fs waiting",
@@ -638,19 +661,18 @@ class VoiceService:
                         "辨識速度跟不上，已略過過期音訊；請改用自動或較小的語音模型"
                     )
                     continue
-                text = str(result.get("text", "")).strip()
                 if self._needs_english_retry(transcript_source, language, text):
                     with inference_lock():
-                        result = self._model.transcribe(
+                        segments, _ = self._model.transcribe(
                             audio,
                             language=None,
                             task="translate",
                             temperature=0.0,
-                            fp16=str(next(self._model.parameters()).device).startswith(
-                                "cuda"
-                            ),
+                            beam_size=1,
+                            condition_on_previous_text=False,
+                            vad_filter=False,
                         )
-                    text = str(result.get("text", "")).strip()
+                        text = "".join(part.text for part in segments).strip()
                 logging.info(
                     "Speech source=%s audio=%.2fs queue=%.2fs inference=%.2fs",
                     transcript_source,

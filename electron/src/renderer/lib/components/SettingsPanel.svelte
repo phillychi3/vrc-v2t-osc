@@ -52,8 +52,8 @@
 	let port = $state('9000')
 	let parameter = $state('/avatar/parameters/v2t_sync_emo')
 	let speechModel = $state('auto')
-	let translationProvider = $state('transformers')
-	let translationModel = $state('facebook/nllb-200-distilled-600M')
+	let translationProvider = $state('onnx')
+	let translationModel = $state('venddair/nllb-200-distilled-600M-onnx')
 	let sourceLanguage = $state('zh')
 	let targetLanguage = $state('en')
 	let translationEndpoint = $state('http://127.0.0.1:5000')
@@ -80,8 +80,7 @@
 		{ value: 'large-v3-turbo', label: 'Large v3 Turbo（建議使用 GPU）' }
 	]
 	const translationModelOptions = [
-		{ value: 'facebook/nllb-200-distilled-600M', label: 'NLLB 200 Distilled 600M（建議）' },
-		{ value: 'facebook/nllb-200-distilled-1.3B', label: 'NLLB 200 Distilled 1.3B（高品質）' }
+		{ value: 'venddair/nllb-200-distilled-600M-onnx', label: 'NLLB 600M INT8（CPU）' }
 	]
 
 	$effect(() => {
@@ -124,7 +123,7 @@
 
 	function selectTranslationProvider(event: Event): void {
 		translationProvider = (event.currentTarget as HTMLSelectElement).value
-		if (translationProvider === 'transformers' && sourceLanguage === 'auto') sourceLanguage = 'zh'
+		if (translationProvider === 'onnx' && sourceLanguage === 'auto') sourceLanguage = 'zh'
 	}
 </script>
 
@@ -270,7 +269,7 @@
 					{/if}
 				</div>
 
-				{#if translationProvider === 'transformers'}
+				{#if translationProvider === 'onnx'}
 					<div>
 						<label class="field-label" for="translation-model">翻譯模型</label>
 						<select
@@ -292,7 +291,7 @@
 						<label class="field-label" for="translation-source">你的語言</label>
 						<select id="translation-source" bind:value={sourceLanguage} class="field-control">
 							{#each languageOptions as language (language.value)}
-								{#if translationProvider !== 'transformers' || language.value !== 'auto'}
+								{#if translationProvider !== 'onnx' || language.value !== 'auto'}
 									<option value={language.value}>{language.label}</option>
 								{/if}
 							{/each}

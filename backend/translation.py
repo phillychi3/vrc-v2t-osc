@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
-from backend.inference import inference_lock
+from backend.nllb import MODEL_ID, NllbTranslator
 
 
 @dataclass(frozen=True)
@@ -74,8 +74,8 @@ class TranslationProviderFactory:
         return list(self._providers.values())
 
 
-class TransformersTranslationProvider:
-    """Local Hugging Face translation pipeline, loaded on first use."""
+class OnnxTranslationProvider:
+    """Local INT8 NLLB, always on the CPU ONNX Runtime provider."""
 
     _LANGUAGES = {
         "zh": "zho_Hant",
@@ -90,57 +90,25 @@ class TransformersTranslationProvider:
     }
 
     def __init__(self, options: dict[str, Any]) -> None:
-        self._model_name = _string_option(
-            options,
-            "model",
-            "facebook/nllb-200-distilled-600M",
-        )
-        self._pipeline: Any = None
-        self._lock = threading.Lock()
+        model_name = _string_option(options, "model", MODEL_ID)
+        if model_name != MODEL_ID:
+            raise ValueError("不支援的本機 ONNX 翻譯模型")
+        self._translator = NllbTranslator()
 
     def translate(self, request: TranslationRequest) -> str:
-        source = self._language_code(request.source_language)
-        target = self._language_code(request.target_language)
-        pipeline = self._get_pipeline()
-        with inference_lock():
-            result = pipeline(
-                request.text,
-                src_lang=source,
-                tgt_lang=target,
-                truncation=True,
-            )
-        if not isinstance(result, list) or not result:
-            raise RuntimeError("本機翻譯模型沒有回傳結果")
-        translated = result[0].get("translation_text")
-        if not isinstance(translated, str) or not translated.strip():
-            raise RuntimeError("本機翻譯模型回傳了無效文字")
-        return translated.strip()
+        return self._translator.translate(
+            request.text,
+            self._language_code(request.source_language),
+            self._language_code(request.target_language),
+        )
 
     def close(self) -> None:
-        with self._lock:
-            self._pipeline = None
-
-    def _get_pipeline(self) -> Any:
-        with self._lock:
-            if self._pipeline is None:
-                import torch
-                from transformers import pipeline
-
-                device = 0 if torch.cuda.is_available() else -1
-                # Loading ~600M parameters onto the GPU must not overlap with
-                # inference on the speech or emotion worker threads.
-                with inference_lock():
-                    self._pipeline = pipeline(
-                        "translation",
-                        model=self._model_name,
-                        device=device,
-                    )
-            return self._pipeline
+        self._translator.close()
 
     @classmethod
     def _language_code(cls, language: str) -> str:
         if language == "auto":
-            raise ValueError("本機 Transformers 翻譯需要明確的來源語言")
+            raise ValueError("本機 ONNX 翻譯需要明確的來源語言")
         return cls._LANGUAGES.get(language, language)
 
 
@@ -278,10 +246,10 @@ class DeepLTranslationProvider:
 def create_default_translation_factory() -> TranslationProviderFactory:
     factory = TranslationProviderFactory()
     factory.register(
-        "transformers",
-        label="本機 Transformers",
+        "onnx",
+        label="本機 NLLB ONNX（CPU）",
         local=True,
-        builder=TransformersTranslationProvider,
+        builder=OnnxTranslationProvider,
     )
     factory.register(
         "libretranslate",

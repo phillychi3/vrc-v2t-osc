@@ -37,7 +37,6 @@ jobs:
         variant: [cpu, cu126]
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      HF_HUB_OFFLINE: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -65,9 +64,9 @@ jobs:
         shell: pwsh
         run: ./scripts/build-backend.ps1 -Variant ${{ matrix.variant }}
       - name: Python regression
-        run: ./build/package-env-${{ matrix.variant }}/Scripts/python.exe -m unittest discover -s tests -t .
+        run: ./build/runtime-env-${{ matrix.variant }}/Scripts/python.exe -m unittest discover -s tests -t .
       - name: Frozen runtime and protocol
-        run: ./build/package-env-${{ matrix.variant }}/Scripts/python.exe scripts/smoke-packaged-backend.py build/python-${{ matrix.variant }}/vrc-v2t-backend/vrc-v2t-backend.exe --variant ${{ matrix.variant }}
+        run: ./build/runtime-env-${{ matrix.variant }}/Scripts/python.exe scripts/smoke-packaged-backend.py build/python-${{ matrix.variant }}/vrc-v2t-backend/vrc-v2t-backend.exe --variant ${{ matrix.variant }}
       - uses: actions/upload-artifact@v4
         with:
           name: backend-${{ matrix.variant }}
@@ -75,8 +74,26 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  models:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Export and validate CPU emotion ONNX (build-only Torch)
+        shell: pwsh
+        run: ./scripts/prepare-emotion.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emotion-onnx
+          path: build/models/emotion
+          if-no-files-found: error
+          retention-days: 1
+
   installer:
-    needs: build
+    needs: [build, models]
     runs-on: windows-2022
     timeout-minutes: 60
     env:
@@ -100,15 +117,35 @@ jobs:
         with:
           name: backend-cu126
           path: build/python-cu126/vrc-v2t-backend
-      - name: Build installer with CPU and GPU choices
-        run: pnpm exec electron-builder --win nsis --x64 --publish never
-      - name: Installer choice and reinstall regression
+      - uses: actions/download-artifact@v4
+        with:
+          name: emotion-onnx
+          path: build/models/emotion
+      - name: Pack both backends as downloadable release assets
+        run: pnpm prepare:backends
+      - name: Build web installer
+        # The app package carries the shared emotion model; the selected
+        # backend is downloaded by the installer.
+        run: pnpm exec electron-builder --win nsis-web --x64 --publish never
+      - name: Installer choice, download and reinstall regression
         shell: pwsh
         run: ./scripts/test-installer.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-installer
-          path: release/*.exe
+          name: windows-web-setup
+          path: release/nsis-web/*
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-backend-cpu
+          path: build/installer-payload/vrc2t-backend-cpu-*.7z
+          if-no-files-found: error
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-backend-cu126
+          path: build/installer-payload/vrc2t-backend-cu126-*.7z
           if-no-files-found: error
           retention-days: 7
 
@@ -122,9 +159,15 @@ jobs:
         variant: [cpu, cu126]
     steps:
       - uses: actions/checkout@v4
+      # The app package and the backend archive are picked up from the
+      # installer's own directory, so the run needs no release server.
       - uses: actions/download-artifact@v4
         with:
-          name: windows-installer
+          name: windows-web-setup
+          path: installer
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-backend-${{ matrix.variant }}
           path: installer
       - name: Install and test without development tools on PATH
         shell: pwsh

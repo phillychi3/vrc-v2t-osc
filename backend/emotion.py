@@ -6,7 +6,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from backend.inference import inference_lock
+from backend.runtime import cpu_session, emotion_model_directory
 
 
 ModelStatusHandler = Callable[[str, str | None], None]
@@ -20,13 +20,11 @@ class EmotionService:
     def __init__(
         self,
         *,
-        model_name: str = "Johnson8187/Chinese-Emotion-Small",
         max_queue: int = 3,
         on_model_status: ModelStatusHandler,
         on_result: EmotionResultHandler,
         on_error: ErrorHandler,
     ) -> None:
-        self._model_name = model_name
         self._on_model_status = on_model_status
         self._on_result = on_result
         self._on_error = on_error
@@ -108,20 +106,19 @@ class EmotionService:
     def _load_model(self) -> None:
         self._on_model_status("loading", None)
         try:
-            import torch
-            from transformers import (
-                AutoModelForSequenceClassification,
-                AutoTokenizer,
-            )
+            from transformers import AutoTokenizer
 
-            device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-            tokenizer = AutoTokenizer.from_pretrained(self._model_name)
-            model = AutoModelForSequenceClassification.from_pretrained(self._model_name)
-            # Moving weights onto the GPU is itself CUDA work, so it must not
-            # overlap with inference running on the other worker threads.
-            with inference_lock():
-                model = model.to(device)
-            model.eval()
+            directory = emotion_model_directory()
+            if not (directory / "model.onnx").is_file():
+                raise FileNotFoundError(
+                    "缺少情緒 ONNX 模型，請先執行 scripts/export-emotion.py："
+                    + str(directory)
+                )
+            tokenizer = AutoTokenizer.from_pretrained(
+                str(directory), local_files_only=True
+            )
+            model = cpu_session(directory / "model.onnx")
+            device = "cpu"
             if self._closed.is_set():
                 return
             with self._lock:
@@ -163,18 +160,23 @@ class EmotionService:
                 self._queue.task_done()
 
     def _predict(self, text: str) -> int:
-        import torch
+        import numpy as np
 
         with self._lock:
             tokenizer = self._tokenizer
             model = self._model
-            device = self._device
         inputs = tokenizer(
             text,
-            return_tensors="pt",
+            return_tensors="np",
             padding=True,
             truncation=True,
+            max_length=512,
         )
-        with inference_lock(), torch.no_grad():
-            outputs = model(**inputs.to(device))
-            return int(torch.argmax(outputs.logits, dim=-1).item())
+        feeds = {
+            item.name: np.asarray(inputs[item.name], dtype=np.int64)
+            for item in model.get_inputs()
+        }
+        logits = model.run(["logits"], feeds)[0]
+        if logits.shape != (1, 8) or not np.isfinite(logits).all():
+            raise RuntimeError("情緒 ONNX 模型輸出格式不正確")
+        return int(np.argmax(logits[0]))

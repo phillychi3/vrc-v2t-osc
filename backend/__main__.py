@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import queue
 import sys
 import threading
@@ -17,6 +18,7 @@ from backend.protocol import (
 from backend.service import BackendService, ServiceError
 from backend.translation import TranslationService
 from backend.voice import VoiceService
+from backend.runtime import backend_variant, configure_native_runtime
 
 
 class MessageWriter:
@@ -49,14 +51,10 @@ class MessageWriter:
 
 def main() -> int:
     logging.basicConfig(stream=sys.stderr, level=logging.INFO)
+    configure_native_runtime()
     if getattr(sys, "frozen", False):
-        # Import native speech modules before any application worker threads
-        # exist. Frozen Torch can deadlock during its first native import from
-        # a multithreaded process even when the importing thread is the main
-        # protocol thread.
-        import torch  # noqa: F401
-        import whisper  # noqa: F401
-        import silero_vad  # noqa: F401
+        import ctranslate2  # noqa: F401
+        import onnxruntime  # noqa: F401
 
     writer = MessageWriter()
     service = BackendService(
@@ -97,7 +95,13 @@ def main() -> int:
     return 0
 
 
-def self_test(*, speech_model: bool = False) -> int:
+def self_test(
+    *,
+    speech_model: bool = False,
+    gpu: bool = False,
+    emotion: bool = False,
+    translation: bool = False,
+) -> int:
     """Load packaged native/runtime dependencies without downloading model weights."""
 
     def stage(name: str) -> None:
@@ -119,36 +123,91 @@ def self_test(*, speech_model: bool = False) -> int:
     stage("sentencepiece")
     import sentencepiece  # noqa: F401
 
-    stage("torch")
-    import torch
+    configure_native_runtime()
+    stage("ctranslate2")
+    import ctranslate2
 
-    stage("whisper")
-    import whisper
-
-    stage("silero-vad")
-    from silero_vad import load_silero_vad
+    stage("faster-whisper")
+    from faster_whisper import WhisperModel
+    from faster_whisper.vad import get_vad_model
 
     stage("transformers")
-    from transformers import AutoModelForSequenceClassification  # noqa: F401
+    from transformers import AutoTokenizer  # noqa: F401
 
     stage("silero-model")
-    vad_model = load_silero_vad()
+    vad_model = get_vad_model()
     stage("silero-inference")
-    vad_model(torch.zeros(512), 16000)
-    whisper.load_audio
-    np.zeros(1, dtype=np.float32)
+    assert np.isfinite(vad_model(np.zeros(512, dtype=np.float32))).all()
+    if backend_variant() == "cu126":
+        stage("cuda-dlls")
+        import ctypes
+
+        for name in ("cublas64_12.dll", "cudnn64_9.dll"):
+            ctypes.WinDLL(name)
+    import importlib.util
+
+    assert importlib.util.find_spec("torch") is None, "Runtime must not contain PyTorch"
     if speech_model:
         stage("whisper-tiny-inference")
-        model = whisper.load_model("tiny", device="cpu")
-        result = model.transcribe(
-            np.zeros(16000, dtype=np.float32), fp16=False, language="en"
+        device = "cuda" if gpu else "cpu"
+        model = WhisperModel(
+            "tiny",
+            device=device,
+            compute_type="float16" if gpu else "int8",
+            cpu_threads=2,
         )
-        assert isinstance(result["text"], str)
-    sys.stdout.write('{"ok":true,"torch":"' + torch.__version__ + '"}\n')
+        segments, _ = model.transcribe(
+            np.zeros(16000, dtype=np.float32), language="en", beam_size=1
+        )
+        assert all(isinstance(segment.text, str) for segment in segments)
+    if emotion:
+        stage("emotion-onnx-cpu")
+        errors = []
+        classifier = EmotionService(
+            on_model_status=lambda *_: None,
+            on_result=lambda *_: None,
+            on_error=errors.append,
+        )
+        try:
+            classifier._load_model()
+            assert classifier.ready, errors
+            assert classifier._predict("今天一起玩遊戲吧。") == 0
+            assert classifier._device == "cpu"
+        finally:
+            classifier.close()
+    if translation:
+        stage("nllb-int8-cpu")
+        from backend.nllb import NllbTranslator
+
+        translator = NllbTranslator()
+        try:
+            assert translator.translate("Hello.", "eng_Latn", "zho_Hant")
+            assert translator.translate("你好。", "zho_Hant", "eng_Latn")
+        finally:
+            translator.close()
+    sys.stdout.write(
+        json.dumps(
+            {
+                "ok": True,
+                "variant": backend_variant(),
+                "ctranslate2": ctranslate2.__version__,
+                "pytorch": False,
+            }
+        )
+        + "\n"
+    )
     return 0
 
 
 if __name__ == "__main__":
-    if "--self-test-model" in sys.argv:
-        raise SystemExit(self_test(speech_model=True))
-    raise SystemExit(self_test() if "--self-test" in sys.argv else main())
+    if any(arg.startswith("--self-test") for arg in sys.argv[1:]):
+        raise SystemExit(
+            self_test(
+                speech_model="--self-test-model" in sys.argv
+                or "--self-test-gpu" in sys.argv,
+                gpu="--self-test-gpu" in sys.argv,
+                emotion="--self-test-emotion" in sys.argv,
+                translation="--self-test-translation" in sys.argv,
+            )
+        )
+    raise SystemExit(main())

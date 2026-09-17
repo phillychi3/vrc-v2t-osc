@@ -15,8 +15,8 @@ const settings = {
 	speech: { model: 'auto', language: 'zh' },
 	translation: {
 		enabled: false,
-		provider: 'transformers',
-		model: 'facebook/nllb-200-distilled-600M',
+		provider: 'onnx',
+		model: 'venddair/nllb-200-distilled-600M-onnx',
 		sourceLanguage: 'zh',
 		targetLanguage: 'en',
 		endpoint: 'http://127.0.0.1:5000',
@@ -83,7 +83,7 @@ ipcMain.handle('backend:list-audio-devices', () => {
 	}
 })
 ipcMain.handle('backend:list-translation-providers', () => ({
-	providers: [{ id: 'transformers', label: 'Local', local: true }]
+	providers: [{ id: 'onnx', label: 'Local', local: true }]
 }))
 ipcMain.handle('backend:start-recording', (_event, _device, source) => record(source, 'listening'))
 ipcMain.handle('backend:stop-recording', (_event, source) => record(source, 'idle'))

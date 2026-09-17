@@ -8,8 +8,8 @@ const DEFAULT_SETTINGS: BackendSettings = {
 	speech: { model: 'auto', language: 'zh' },
 	translation: {
 		enabled: false,
-		provider: 'transformers',
-		model: 'facebook/nllb-200-distilled-600M',
+		provider: 'onnx',
+		model: 'venddair/nllb-200-distilled-600M-onnx',
 		sourceLanguage: 'zh',
 		targetLanguage: 'en',
 		endpoint: 'http://127.0.0.1:5000',
@@ -32,7 +32,7 @@ export class SettingsStore {
 
 	async load(): Promise<BackendSettings> {
 		try {
-			const settings = migrateSettings(JSON.parse(await readFile(this.path, 'utf8')))
+			const settings = JSON.parse(await readFile(this.path, 'utf8'))
 			if (!isSettings(settings)) throw new Error('設定格式或版本不相容')
 			return settings
 		} catch (error) {
@@ -83,9 +83,9 @@ function isSettings(value: unknown): value is BackendSettings {
 		]) &&
 		typeof translation.enabled === 'boolean' &&
 		typeof translation.provider === 'string' &&
-		translation.provider.trim().length > 0 &&
+		['onnx', 'libretranslate', 'deepl'].includes(translation.provider) &&
 		typeof translation.model === 'string' &&
-		translation.model.trim().length > 0 &&
+		translation.model === DEFAULT_SETTINGS.translation.model &&
 		typeof translation.sourceLanguage === 'string' &&
 		translation.sourceLanguage.trim().length > 0 &&
 		typeof translation.targetLanguage === 'string' &&
@@ -113,17 +113,6 @@ function isSettings(value: unknown): value is BackendSettings {
 		typeof privacy.saveTranscripts === 'boolean' &&
 		Object.keys(value).length === 7
 	)
-}
-
-function migrateSettings(value: unknown): unknown {
-	if (!isRecord(value) || value.schemaVersion !== 1) return value
-	const audio = isRecord(value.audio)
-		? { ...DEFAULT_SETTINGS.audio, ...value.audio }
-		: structuredClone(DEFAULT_SETTINGS.audio)
-	const translation = isRecord(value.translation)
-		? { ...DEFAULT_SETTINGS.translation, ...value.translation }
-		: structuredClone(DEFAULT_SETTINGS.translation)
-	return { ...value, audio, translation }
 }
 
 function hasExactKeys(value: unknown, keys: string[]): value is Record<string, unknown> {

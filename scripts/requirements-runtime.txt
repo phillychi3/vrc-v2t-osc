@@ -1,0 +1,13 @@
+# PyTorch-free inference environment. Keep in sync with pyproject.toml.
+numpy==2.2.4
+setuptools==78.1.0
+faster-whisper==1.2.1
+ctranslate2==4.6.0
+onnxruntime==1.22.0
+av==16.1.0
+transformers==4.51.3
+sentencepiece==0.2.1
+PyAudioWPatch==0.2.12.8
+python-osc==1.9.3
+pydub==0.25.1
+audioop-lts==0.2.2; python_version >= '3.13'

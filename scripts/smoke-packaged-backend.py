@@ -34,7 +34,8 @@ def main() -> int:
         return dependency_check.returncode
     dependency_result = json.loads(dependency_check.stdout)
     assert dependency_result["ok"] is True
-    assert dependency_result["torch"].endswith(f"+{args.variant}"), dependency_result
+    assert dependency_result["variant"] == args.variant, dependency_result
+    assert dependency_result["pytorch"] is False, dependency_result
 
     # This is the real-model integration tier. Keep it small and explicit;
     # the regular protocol tests use a fixture and never load/download models.
@@ -94,7 +95,7 @@ def main() -> int:
     assert responses["init"]["result"]["models"]["speech"]["status"] == "ready"
     assert responses["providers"]["ok"] is True
     assert {item["id"] for item in responses["providers"]["result"]["providers"]} == {
-        "transformers",
+        "onnx",
         "libretranslate",
         "deepl",
     }

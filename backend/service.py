@@ -300,7 +300,7 @@ class BackendService:
         context = params.get("context", {})
         if not isinstance(options, dict) or not isinstance(context, dict):
             raise ServiceError("INVALID_PARAMS", "options 與 context 必須是物件")
-        if provider == "transformers":
+        if provider == "onnx":
             options = {**options, "model": self._settings["translation"]["model"]}
         elif provider == "deepl":
             options = {
@@ -379,7 +379,7 @@ class BackendService:
             candidate["translation"]["model"] != old_translation_model
             and self._translation is not None
         ):
-            self._translation.invalidate("transformers")
+            self._translation.invalidate("onnx")
         if self._translation is not None and (
             candidate["translation"]["deeplPlan"] != old_deepl_plan
             or candidate["translation"]["deeplApiKey"] != old_deepl_api_key
@@ -646,7 +646,7 @@ class BackendService:
             source_language = settings["sourceLanguage"]
             target_language = settings["targetLanguage"]
         options: dict[str, Any] = {}
-        if settings["provider"] == "transformers":
+        if settings["provider"] == "onnx":
             options = {"model": settings["model"]}
         elif settings["provider"] == "libretranslate":
             options = {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any
+from backend.nllb import MODEL_ID
 
 
 SPEECH_MODELS = {
@@ -13,10 +14,7 @@ SPEECH_MODELS = {
     "large-v3",
     "large-v3-turbo",
 }
-TRANSLATION_MODELS = {
-    "facebook/nllb-200-distilled-600M",
-    "facebook/nllb-200-distilled-1.3B",
-}
+TRANSLATION_MODELS = {MODEL_ID}
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -29,8 +27,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "speech": {"model": "auto", "language": "zh"},
     "translation": {
         "enabled": False,
-        "provider": "transformers",
-        "model": "facebook/nllb-200-distilled-600M",
+        "provider": "onnx",
+        "model": MODEL_ID,
         "sourceLanguage": "zh",
         "targetLanguage": "en",
         "endpoint": "http://127.0.0.1:5000",

@@ -73,7 +73,7 @@ try {
 		assert.ok(modelOptions.speech.includes('auto'), 'automatic speech model option is missing')
 		assert.equal(modelOptions.selectedSpeech, 'auto', 'fresh installs should use automatic speech')
 		assert.ok(
-			modelOptions.translation.includes('facebook/nllb-200-distilled-1.3B'),
+			modelOptions.translation.includes('venddair/nllb-200-distilled-600M-onnx'),
 			'translation model selector is missing'
 		)
 		// A small speech model can be ready before device enumeration finishes.

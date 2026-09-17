@@ -556,13 +556,17 @@ class ServiceTests(unittest.TestCase):
             Request(
                 "translation-model",
                 "settings.update",
-                {"patch": {"translation": {"model": "facebook/nllb-200-distilled-1.3B"}}},
+                {
+                    "patch": {
+                        "translation": {"model": "venddair/nllb-200-distilled-600M-onnx"}
+                    }
+                },
             )
         )
-        self.assertEqual(translations[0].invalidated, ["transformers"])
+        self.assertEqual(translations[0].invalidated, [])
         self.assertEqual(
             updated["settings"]["translation"]["model"],  # type: ignore[index]
-            "facebook/nllb-200-distilled-1.3B",
+            "venddair/nllb-200-distilled-600M-onnx",
         )
         service.close()
         self.assertTrue(translations[0].closed)
@@ -698,7 +702,7 @@ class ServiceTests(unittest.TestCase):
         self.assertEqual(oscs[0].sent, ["Hello"])
         self.assertEqual(
             translations[0].submissions[-1]["options"],
-            {"model": "facebook/nllb-200-distilled-600M"},
+            {"model": "venddair/nllb-200-distilled-600M-onnx"},
         )
         result_events = [
             event for event in self.events if event["event"] == "translation.result"

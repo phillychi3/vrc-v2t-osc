@@ -2,7 +2,7 @@ name: Windows release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -43,7 +43,15 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: windows-installer
+          name: windows-web-setup
+          path: installer
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-backend-cpu
+          path: installer
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-backend-cu126
           path: installer
       - name: Create checksums and draft release
         env:
@@ -55,14 +63,20 @@ jobs:
         run: |
           set -euo pipefail
           cd installer
-          test -f "VRC2T-${TAG#v}-windows-x64-setup.exe"
-          sha256sum -- *.exe > SHA256SUMS.txt
+          VERSION="${TAG#v}"
+          # The web installer downloads these assets from this tag, so their
+          # names must stay exactly as the installer was compiled to expect.
+          test -f "VRC2T-${VERSION}-windows-x64-web-setup.exe"
+          test -f "vrc2t-${VERSION}-x64.nsis.7z"
+          test -f "vrc2t-backend-cpu-${VERSION}-x64.7z"
+          test -f "vrc2t-backend-cu126-${VERSION}-x64.7z"
+          sha256sum -- *.exe *.7z > SHA256SUMS.txt
           printf 'pre' "$RUN_URL" > release-notes.md
           if gh release view "$TAG" --json isDraft > existing-release.json 2>/dev/null; then
             python -c 'import json; assert json.load(open("existing-release.json"))["isDraft"], "Refusing to replace a published release"'
-            gh release upload "$TAG" ./*.exe SHA256SUMS.txt --clobber
+            gh release upload "$TAG" ./*.exe ./*.7z SHA256SUMS.txt --clobber
             gh release edit "$TAG" --notes-file release-notes.md
           else
-            gh release create "$TAG" ./*.exe SHA256SUMS.txt --verify-tag --draft --title "$TAG" --notes-file release-notes.md
+            gh release create "$TAG" ./*.exe ./*.7z SHA256SUMS.txt --verify-tag --draft --title "$TAG" --notes-file release-notes.md
           fi
           printf 'Release draft: %s\n\nValidation: %s\n' "$(gh release view "$TAG" --json url --jq .url)" "$RUN_URL" >> "$GITHUB_STEP_SUMMARY"

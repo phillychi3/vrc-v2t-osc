@@ -7,24 +7,19 @@ readme = "README.md"
 package-mode = false
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = ">=3.12,<3.14"
 python-osc = "^1.9.3"
 numpy = "^2.2.4"
-openai-whisper = "^20240930"
-torch = { version = "^2.1.0", source = "torch" }
-torchaudio = { version = "^2.6.0", source = "torch" }
-transformers = "^4.51.3"
+setuptools = "78.1.0"
+faster-whisper = "1.2.1"
+ctranslate2 = "4.6.0"
+onnxruntime = "1.22.0"
+av = "16.1.0"
+transformers = "4.51.3"
 pyaudiowpatch = "^0.2.12.8"
-silero-vad = "^6.2.1"
 sentencepiece = "0.2.1"
 pydub = "0.25.1"
 audioop-lts = {version = "0.2.2", markers = "python_version >= \"3.13\""}
-
-[[tool.poetry.source]]
-name = "torch"
-url = "https://download.pytorch.org/whl/cu126"
-priority = "supplemental"
-
 
 [tool.poetry.group.dev.dependencies]
 pyinstaller = {version = "^6.22.2", python = ">=3.12,<3.16"}

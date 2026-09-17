@@ -8,15 +8,21 @@ files:
   - build/renderer/**/*
   - package.json
 extraResources:
-  - from: build/python-cpu/vrc-v2t-backend
-    to: backend
+  - from: build/models/emotion
+    to: models/emotion
     filter:
       - '**/*'
 asar: true
+# Both backends are published as separate release assets and downloaded by the
+# web installer; see scripts/prepare-backends.cjs and scripts/installer.nsh.
+publish:
+  provider: github
+  owner: phillychi3
+  repo: vrc-v2t-osc
 win:
-  artifactName: VRC2T-${version}-windows-${arch}-setup.${ext}
+  artifactName: VRC2T-${version}-windows-${arch}-web-setup.${ext}
   icon: icons/windows/icon.ico
-  target: nsis
+  target: nsis-web
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true

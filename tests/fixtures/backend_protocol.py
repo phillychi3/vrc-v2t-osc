@@ -16,6 +16,9 @@ class NoModelImports(importlib.abc.MetaPathFinder):
             "silero_vad",
             "transformers",
             "pyaudiowpatch",
+            "faster_whisper",
+            "ctranslate2",
+            "onnxruntime",
         }:
             self.attempts.append(fullname)
             raise AssertionError(f"Protocol test attempted to import {fullname}")
