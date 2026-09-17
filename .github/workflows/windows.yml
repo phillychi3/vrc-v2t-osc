@@ -74,26 +74,8 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  models:
-    runs-on: windows-2022
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Export and validate CPU emotion ONNX (build-only Torch)
-        shell: pwsh
-        run: ./scripts/prepare-emotion.ps1
-      - uses: actions/upload-artifact@v4
-        with:
-          name: emotion-onnx
-          path: build/models/emotion
-          if-no-files-found: error
-          retention-days: 1
-
   installer:
-    needs: [build, models]
+    needs: build
     runs-on: windows-2022
     timeout-minutes: 60
     env:
@@ -117,11 +99,9 @@ jobs:
         with:
           name: backend-cu126
           path: build/python-cu126/vrc-v2t-backend
-      - uses: actions/download-artifact@v4
-        with:
-          name: emotion-onnx
-          path: build/models/emotion
-      - name: Pack the backends and emotion model as release assets
+      - name: Pack the backends as release assets
+        # The emotion model is not packed here: the installer is compiled
+        # against the archive scripts/emotion-asset.json pins, published once.
         run: pnpm prepare:assets
       - name: Build web installer
         # The app package carries only Electron and the frontend; the
@@ -148,12 +128,6 @@ jobs:
           path: build/installer-payload/vrc2t-backend-cu126-*.7z
           if-no-files-found: error
           retention-days: 7
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-emotion
-          path: build/installer-payload/vrc2t-emotion-*.7z
-          if-no-files-found: error
-          retention-days: 7
 
   clean-install:
     needs: installer
@@ -175,11 +149,9 @@ jobs:
         with:
           name: windows-backend-${{ matrix.variant }}
           path: installer
-      # The emotion self-test needs the optional model, so install it here.
-      - uses: actions/download-artifact@v4
-        with:
-          name: windows-emotion
-          path: installer
+      # The emotion self-test needs the optional model. It is not built here:
+      # the installer downloads the published archive it was compiled against,
+      # which also proves the pinned URL and digest are still correct.
       - name: Install and test without development tools on PATH
         shell: pwsh
         run: ./scripts/smoke-clean-install.ps1 -Installer (Get-ChildItem installer/*.exe | Select-Object -First 1).FullName -Variant ${{ matrix.variant }}

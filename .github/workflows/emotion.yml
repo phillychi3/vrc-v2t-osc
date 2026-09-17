@@ -1,0 +1,102 @@
+name: Emotion model asset
+
+# Runs once per model revision, not once per release. It exports the ONNX
+# classifier, packs the single archive scripts/emotion-asset.json pins and
+# publishes it under its own tag. Every later app release compiles the
+# installer against that same archive, so nothing here runs during a release.
+on:
+  workflow_dispatch:
+    inputs:
+      replace:
+        description: 'Replace an archive already published under the tag (breaks installers compiled against the old digest)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: emotion-asset
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: windows-2022
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+      - run: pnpm install --frozen-lockfile
+      - name: Read the pinned tag and archive name
+        id: pin
+        shell: bash
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          pin = json.load(open('scripts/emotion-asset.json'))
+          for key in ('tag', 'name', 'modelVersion', 'revision'):
+              print(f'{key}={pin[key]}')
+          PY
+      - name: Refuse to overwrite a published archive
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.pin.outputs.tag }}
+          NAME: ${{ steps.pin.outputs.name }}
+          REPLACE: ${{ inputs.replace }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Installers already in the wild verify the old SHA2-512, so a silent
+          # replacement would break them; bump the pin instead.
+          if gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null | grep -qxF "$NAME"; then
+            if [ "$REPLACE" != "true" ]; then
+              echo "::error::$NAME is already published under $TAG. Bump modelVersion, tag and name in scripts/emotion-asset.json, or re-run with replace enabled."
+              exit 1
+            fi
+            echo "::warning::Replacing the published $NAME"
+          fi
+      - name: Export and validate CPU emotion ONNX (build-only Torch)
+        shell: pwsh
+        run: ./scripts/prepare-emotion.ps1
+      - name: Pack the pinned archive
+        run: node scripts/pack-emotion.cjs
+      - name: Publish under the pinned tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.pin.outputs.tag }}
+          NAME: ${{ steps.pin.outputs.name }}
+          MODEL_VERSION: ${{ steps.pin.outputs.modelVersion }}
+          REVISION: ${{ steps.pin.outputs.revision }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" > /dev/null 2>&1; then
+            printf 'Emotion recognition model %s, exported to FP32 ONNX from %s.\n\nInstallers download this archive directly; it is not tied to an application version.\n' \
+              "$MODEL_VERSION" "$REVISION" > emotion-notes.md
+            gh release create "$TAG" --title "Emotion model $MODEL_VERSION" --notes-file emotion-notes.md --latest=false
+          fi
+          gh release upload "$TAG" "build/installer-payload/$NAME" --clobber
+      - name: Show the manifest to commit
+        shell: bash
+        run: |
+          {
+            echo 'Commit `scripts/emotion-asset.json` with these measurements:'
+            echo '```json'
+            cat scripts/emotion-asset.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emotion-asset-manifest
+          path: scripts/emotion-asset.json
+          if-no-files-found: error

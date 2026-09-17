@@ -1,15 +1,18 @@
 name: Windows release
 
+# The release itself is published by hand. This rebuilds and revalidates the
+# tag, then attaches the assets the published installer downloads. It never
+# creates, publishes or rewrites a release, so the notes stay as written.
 on:
-  push:
-    tags: ['v*']
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event.release.tag_name || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -17,17 +20,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref }}
       - name: Require a version tag matching package.json
         env:
-          REF_TYPE: ${{ github.ref_type }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
         run: |
           python - <<'PY'
           import json, os, re
           version = json.load(open('package.json'))['version']
-          assert os.environ['REF_TYPE'] == 'tag', 'Run this workflow on a version tag'
           assert re.fullmatch(r'\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?', version), 'Invalid release version'
-          assert os.environ['TAG'] == f'v{version}', 'Tag must match package.json version'
+          assert os.environ['TAG'] == f'v{version}', 'Release tag must match package.json version'
           PY
       - run: python scripts/sync-version.py --check
 
@@ -53,15 +56,11 @@ jobs:
         with:
           name: windows-backend-cu126
           path: installer
-      - uses: actions/download-artifact@v4
-        with:
-          name: windows-emotion
-          path: installer
-      - name: Create checksums and draft release
+      - name: Attach the installer and backends to the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         shell: bash
         run: |
@@ -70,18 +69,12 @@ jobs:
           VERSION="${TAG#v}"
           # The web installer downloads these assets from this tag, so their
           # names must stay exactly as the installer was compiled to expect.
+          # The emotion model is not among them: it stays on its own tag, see
+          # scripts/emotion-asset.json and .github/workflows/emotion.yml.
           test -f "VRC2T-${VERSION}-windows-x64-web-setup.exe"
           test -f "vrc2t-${VERSION}-x64.nsis.7z"
           test -f "vrc2t-backend-cpu-${VERSION}-x64.7z"
           test -f "vrc2t-backend-cu126-${VERSION}-x64.7z"
-          test -f "vrc2t-emotion-${VERSION}.7z"
           sha256sum -- *.exe *.7z > SHA256SUMS.txt
-          printf 'pre' "$RUN_URL" > release-notes.md
-          if gh release view "$TAG" --json isDraft > existing-release.json 2>/dev/null; then
-            python -c 'import json; assert json.load(open("existing-release.json"))["isDraft"], "Refusing to replace a published release"'
-            gh release upload "$TAG" ./*.exe ./*.7z SHA256SUMS.txt --clobber
-            gh release edit "$TAG" --notes-file release-notes.md
-          else
-            gh release create "$TAG" ./*.exe ./*.7z SHA256SUMS.txt --verify-tag --draft --title "$TAG" --notes-file release-notes.md
-          fi
-          printf 'Release draft: %s\n\nValidation: %s\n' "$(gh release view "$TAG" --json url --jq .url)" "$RUN_URL" >> "$GITHUB_STEP_SUMMARY"
+          gh release upload "$TAG" ./*.exe ./*.7z SHA256SUMS.txt --clobber
+          printf 'Release: %s\n\nValidation: %s\n' "$(gh release view "$TAG" --json url --jq .url)" "$RUN_URL" >> "$GITHUB_STEP_SUMMARY"

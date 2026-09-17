@@ -1,0 +1,13 @@
+{
+	"modelVersion": "v1",
+	"revision": "a8b83db21e778e99d56058124eaab4ab99efe598",
+	"format": "onnx-fp32",
+	"tag": "emotion-v1",
+	"name": "vrc2t-emotion-v1.7z",
+	"entry": "model.onnx",
+	"url": "https://github.com/phillychi3/vrc-v2t-osc/releases/download/emotion-v1/vrc2t-emotion-v1.7z",
+	"bytes": 0,
+	"unpackedBytes": 0,
+	"sha512": "",
+	"sha256": ""
+}

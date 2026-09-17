@@ -6,8 +6,10 @@
 !include "FileFunc.nsh"
 
 !ifndef BUILD_UNINSTALLER
-; Archive names, SHA2-512 digests, sizes and the release base URL, written by
+; Archive names, download URLs, SHA2-512 digests and sizes, written by
 ; scripts/prepare-assets.cjs. Run `pnpm prepare:assets` before packaging.
+; Each asset carries its own URL: the backends live under this release's tag,
+; while the emotion model stays on the tag it was published under once.
 !include "${PROJECT_DIR}\build\installer-payload\installer-assets.nsh"
 
 Var BackendVariant
@@ -17,6 +19,7 @@ Var EmotionWanted
 Var EmotionCheckbox
 ; The asset currently being fetched, so one pair of macros serves all of them.
 Var AssetArchive
+Var AssetUrl
 Var AssetEntry
 Var AssetDigest
 Var AssetRequiredMb
@@ -129,8 +132,9 @@ FunctionEnd
 ; StdUtils, INetC or nsExec plugins. Expanding inside customInstall defers the
 ; parse to the install section, which is what the templates themselves do.
 
-!macro selectAsset NAME ENTRY HASH REQUIRED_MB
+!macro selectAsset NAME URL ENTRY HASH REQUIRED_MB
   StrCpy $AssetArchive "${NAME}"
+  StrCpy $AssetUrl "${URL}"
   StrCpy $AssetEntry "${ENTRY}"
   StrCpy $AssetDigest "${HASH}"
   StrCpy $AssetRequiredMb "${REQUIRED_MB}"
@@ -158,12 +162,12 @@ FunctionEnd
     StrCpy $AssetFile "$PLUGINSDIR\$AssetArchive"
     ${ID}Download:
       DetailPrint "Downloading $AssetArchive"
-      inetc::get /USERAGENT "electron-builder (Mozilla)" /RESUME "" "${ASSET_BASE_URL}/$AssetArchive" "$AssetFile" /END
+      inetc::get /USERAGENT "electron-builder (Mozilla)" /RESUME "" "$AssetUrl" "$AssetFile" /END
       Pop $0
       ${If} $0 != "OK"
       ${AndIf} $0 != "Cancelled"
         ; Retry without the system proxy, the way the app package download does.
-        inetc::get /NOPROXY /USERAGENT "electron-builder (Mozilla)" /RESUME "" "${ASSET_BASE_URL}/$AssetArchive" "$AssetFile" /END
+        inetc::get /NOPROXY /USERAGENT "electron-builder (Mozilla)" /RESUME "" "$AssetUrl" "$AssetFile" /END
         Pop $0
       ${EndIf}
       ${If} $0 == "Cancelled"
@@ -244,9 +248,9 @@ FunctionEnd
   !insertmacro stageExtractor
 
   ${If} $BackendVariant == "cu126"
-    !insertmacro selectAsset "${ASSET_CU126_NAME}" "${ASSET_CU126_ENTRY}" "${ASSET_CU126_HASH}" "${ASSET_CU126_REQUIRED_MB}"
+    !insertmacro selectAsset "${ASSET_CU126_NAME}" "${ASSET_CU126_URL}" "${ASSET_CU126_ENTRY}" "${ASSET_CU126_HASH}" "${ASSET_CU126_REQUIRED_MB}"
   ${Else}
-    !insertmacro selectAsset "${ASSET_CPU_NAME}" "${ASSET_CPU_ENTRY}" "${ASSET_CPU_HASH}" "${ASSET_CPU_REQUIRED_MB}"
+    !insertmacro selectAsset "${ASSET_CPU_NAME}" "${ASSET_CPU_URL}" "${ASSET_CPU_ENTRY}" "${ASSET_CPU_HASH}" "${ASSET_CPU_REQUIRED_MB}"
   ${EndIf}
   ; Download before removing anything, so a failed download cannot destroy a
   ; working installation that is only being repaired or switched.
@@ -254,7 +258,7 @@ FunctionEnd
   !insertmacro extractAsset "$INSTDIR\resources\backend"
 
   ${If} $EmotionWanted == "yes"
-    !insertmacro selectAsset "${ASSET_EMOTION_NAME}" "${ASSET_EMOTION_ENTRY}" "${ASSET_EMOTION_HASH}" "${ASSET_EMOTION_REQUIRED_MB}"
+    !insertmacro selectAsset "${ASSET_EMOTION_NAME}" "${ASSET_EMOTION_URL}" "${ASSET_EMOTION_ENTRY}" "${ASSET_EMOTION_HASH}" "${ASSET_EMOTION_REQUIRED_MB}"
     !insertmacro obtainAsset "Emotion"
     !insertmacro extractAsset "$INSTDIR\resources\models\emotion"
   ${Else}

@@ -64,11 +64,14 @@ $payload = Join-Path $testRoot 'build/installer-payload'
 $env:VRC_ASSET_BASE_URL = "http://127.0.0.1:$port"
 # The stand-in backends have no vrc-v2t-backend.exe to check for.
 $env:VRC_BACKEND_ENTRY = 'runtime.txt'
+# Pack the stand-in model rather than compiling against the published archive,
+# so this runs offline and still exercises the emotion download path.
+$env:VRC_EMOTION_MODEL_DIR = $emotionSource
 try {
     node (Join-Path $PSScriptRoot 'prepare-assets.cjs') $testRoot
     if ($LASTEXITCODE -ne 0) { throw 'Installer fixture archives failed' }
 } finally {
-    Remove-Item Env:VRC_ASSET_BASE_URL, Env:VRC_BACKEND_ENTRY
+    Remove-Item Env:VRC_ASSET_BASE_URL, Env:VRC_BACKEND_ENTRY, Env:VRC_EMOTION_MODEL_DIR
 }
 $assets = Get-Content (Join-Path $payload 'installer-assets.json') -Raw | ConvertFrom-Json
 $archiveOf = @{}
