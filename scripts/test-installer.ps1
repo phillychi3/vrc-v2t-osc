@@ -1,26 +1,46 @@
 param([string]$Makensis)
 
 $ErrorActionPreference = 'Stop'
-if (-not $Makensis) {
-    $Makensis = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'electron-builder/Cache/nsis') `
-        -Filter makensis.exe -Recurse | Select-Object -First 1 -ExpandProperty FullName
-}
-if (-not $Makensis) { throw 'Build the installer first to download the NSIS compiler' }
-# StdUtils and INetC ship with electron-builder's NSIS resources, not with NSIS.
-$pluginDir = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'electron-builder/Cache/nsis') `
-    -Filter x86-unicode -Recurse -Directory |
-    Where-Object { Test-Path (Join-Path $_.FullName 'INetC.dll') } |
-    Select-Object -First 1 -ExpandProperty FullName
-if (-not $pluginDir) { throw 'Build the installer first to download the NSIS plugins' }
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$templateInclude = & node -e @'
+# Ask electron-builder where its toolset lives instead of guessing a cache
+# layout: the directory names are versioned and have changed between releases,
+# and this also downloads the toolset when it has not been fetched yet.
+# StdUtils and INetC ship with its NSIS resources, not with NSIS itself.
+# Answer through a file: a first-time toolset download logs to stdout too.
+$toolsetFile = Join-Path ([IO.Path]::GetTempPath()) ('vrc-nsis-toolset-' + [guid]::NewGuid() + '.json')
+& node -e @'
 const { createRequire } = require('node:module')
+const fs = require('node:fs')
 const path = require('node:path')
 const builderRequire = createRequire(require.resolve('electron-builder'))
+const { getMakeNsisPath, getNsisPluginsPath } = builderRequire('app-builder-lib/out/toolsets/windows')
 const root = path.dirname(builderRequire.resolve('app-builder-lib/package.json'))
-console.log(path.join(root, 'templates', 'nsis', 'include'))
-'@
-if ($LASTEXITCODE -ne 0) { throw 'Could not locate the electron-builder NSIS templates' }
+Promise.all([getMakeNsisPath(), getNsisPluginsPath()]).then(([makensis, plugins]) => {
+	fs.writeFileSync(
+		process.argv[1],
+		JSON.stringify({
+			makensis: makensis.path,
+			env: makensis.env ?? {},
+			plugins: path.join(plugins, 'x86-unicode'),
+			templates: path.join(root, 'templates', 'nsis', 'include')
+		})
+	)
+})
+'@ $toolsetFile
+if ($LASTEXITCODE -ne 0) { throw 'Could not resolve the electron-builder NSIS toolset' }
+$toolset = Get-Content -LiteralPath $toolsetFile -Raw | ConvertFrom-Json
+Remove-Item -LiteralPath $toolsetFile -Force
+if (-not $Makensis) { $Makensis = $toolset.makensis }
+$pluginDir = $toolset.plugins
+$templateInclude = $toolset.templates
+foreach ($required in $Makensis, $pluginDir, $templateInclude) {
+    if (-not (Test-Path -LiteralPath $required)) { throw "NSIS toolset is incomplete: $required" }
+}
+# The legacy bundle needs NSISDIR pointed at itself; newer ones set it themselves.
+$originalNsisDir = $env:NSISDIR
+foreach ($entry in $toolset.env.PSObject.Properties) {
+    Set-Item -LiteralPath "Env:$($entry.Name)" -Value $entry.Value
+}
 
 $testRoot = Join-Path $projectRoot ('build/installer-test-' + [guid]::NewGuid())
 foreach ($variant in 'cpu', 'cu126') {
@@ -184,6 +204,11 @@ try {
     Write-Output "Interactive test installer: $setup"
 } finally {
     if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force }
+    if ($null -eq $originalNsisDir) {
+        Remove-Item -LiteralPath 'Env:NSISDIR' -ErrorAction SilentlyContinue
+    } else {
+        $env:NSISDIR = $originalNsisDir
+    }
     # Remove only the unique test registry value/key, never an app installation.
     Remove-Item -LiteralPath "HKCU:\$registryKey" -ErrorAction SilentlyContinue
 }
