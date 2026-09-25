@@ -2,13 +2,14 @@ name: Emotion model asset
 
 # Runs once per model revision, not once per release. It exports the ONNX
 # classifier, packs the single archive scripts/emotion-asset.json pins and
-# publishes it under its own tag. Every later app release compiles the
+# uploads it to its own folder on Cloudflare R2
+# (https://cdn.cloudowo.com/vrc2t/<tag>/). Every later app release compiles the
 # installer against that same archive, so nothing here runs during a release.
 on:
   workflow_dispatch:
     inputs:
       replace:
-        description: 'Replace an archive already published under the tag (breaks installers compiled against the old digest)'
+        description: 'Replace an archive already published in the folder (breaks installers compiled against the old digest)'
         type: boolean
         default: false
 
@@ -19,12 +20,20 @@ concurrency:
   group: emotion-asset
   cancel-in-progress: false
 
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  AWS_DEFAULT_REGION: auto
+  # R2 rejects the checksum headers newer AWS CLIs send by default.
+  AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+  AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+  R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+  R2_BUCKET: ${{ secrets.R2_BUCKET }}
+
 jobs:
   publish:
     runs-on: windows-2022
     timeout-minutes: 60
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -42,13 +51,11 @@ jobs:
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import json, os
           pin = json.load(open('scripts/emotion-asset.json'))
-          for key in ('tag', 'name', 'modelVersion', 'revision'):
+          for key in ('tag', 'name'):
               print(f'{key}={pin[key]}')
           PY
       - name: Refuse to overwrite a published archive
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
           TAG: ${{ steps.pin.outputs.tag }}
           NAME: ${{ steps.pin.outputs.name }}
           REPLACE: ${{ inputs.replace }}
@@ -57,7 +64,7 @@ jobs:
           set -euo pipefail
           # Installers already in the wild verify the old SHA2-512, so a silent
           # replacement would break them; bump the pin instead.
-          if gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null | grep -qxF "$NAME"; then
+          if aws s3api head-object --bucket "$R2_BUCKET" --key "vrc2t/$TAG/$NAME" --endpoint-url "$R2_ENDPOINT" > /dev/null 2>&1; then
             if [ "$REPLACE" != "true" ]; then
               echo "::error::$NAME is already published under $TAG. Bump modelVersion, tag and name in scripts/emotion-asset.json, or re-run with replace enabled."
               exit 1
@@ -69,23 +76,14 @@ jobs:
         run: ./scripts/prepare-emotion.ps1
       - name: Pack the pinned archive
         run: node scripts/pack-emotion.cjs
-      - name: Publish under the pinned tag
+      - name: Upload to the pinned folder on R2
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
           TAG: ${{ steps.pin.outputs.tag }}
           NAME: ${{ steps.pin.outputs.name }}
-          MODEL_VERSION: ${{ steps.pin.outputs.modelVersion }}
-          REVISION: ${{ steps.pin.outputs.revision }}
         shell: bash
         run: |
           set -euo pipefail
-          if ! gh release view "$TAG" > /dev/null 2>&1; then
-            printf 'Emotion recognition model %s, exported to FP32 ONNX from %s.\n\nInstallers download this archive directly; it is not tied to an application version.\n' \
-              "$MODEL_VERSION" "$REVISION" > emotion-notes.md
-            gh release create "$TAG" --title "Emotion model $MODEL_VERSION" --notes-file emotion-notes.md --latest=false
-          fi
-          gh release upload "$TAG" "build/installer-payload/$NAME" --clobber
+          aws s3 cp "build/installer-payload/$NAME" "s3://$R2_BUCKET/vrc2t/$TAG/$NAME" --endpoint-url "$R2_ENDPOINT" --no-progress
       - name: Show the manifest to commit
         shell: bash
         run: |

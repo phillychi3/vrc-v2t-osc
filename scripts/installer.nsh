@@ -8,8 +8,8 @@
 !ifndef BUILD_UNINSTALLER
 ; Archive names, download URLs, SHA2-512 digests and sizes, written by
 ; scripts/prepare-assets.cjs. Run `pnpm prepare:assets` before packaging.
-; Each asset carries its own URL: the backends live under this release's tag,
-; while the emotion model stays on the tag it was published under once.
+; Each asset carries its own URL: the backends live under this release's folder,
+; while the emotion model stays in the folder it was published to once.
 !include "${PROJECT_DIR}\build\installer-payload\installer-assets.nsh"
 
 Var BackendVariant

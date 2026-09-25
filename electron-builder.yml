@@ -11,10 +11,11 @@ asar: true
 # The backends and the optional emotion model are published as separate release
 # assets and downloaded by the web installer, so nothing large ships inside the
 # app package; see scripts/prepare-assets.cjs and scripts/installer.nsh.
+# The web installer fetches the app package from the same Cloudflare R2 folder
+# the release workflow uploads each version to.
 publish:
-  provider: github
-  owner: phillychi3
-  repo: vrc-v2t-osc
+  provider: generic
+  url: https://cdn.cloudowo.com/vrc2t/v${version}
 win:
   artifactName: VRC2T-${version}-windows-${arch}-web-setup.${ext}
   icon: icons/windows/icon.ico

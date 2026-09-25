@@ -2,7 +2,7 @@
 // Pack the exported emotion model into the one archive every release points at.
 //
 // This runs once per model revision, not once per release: the archive is
-// published under its own tag and scripts/emotion-asset.json is committed with
+// published under its own folder and scripts/emotion-asset.json is committed with
 // the measurements the installer is compiled against. Normal builds read that
 // manifest and neither export nor pack the model again.
 const { createRequire } = require('node:module')
@@ -14,7 +14,7 @@ const { getPath7za } = builderRequire('app-builder-lib/out/toolsets/7zip')
 
 const { directorySize, hashFile, packAsset, EMOTION_MANIFEST } = require('./prepare-assets.cjs')
 
-const REPOSITORY = process.env.VRC_ASSET_REPOSITORY || 'https://github.com/phillychi3/vrc-v2t-osc'
+const CDN = process.env.VRC_ASSET_CDN || 'https://cdn.cloudowo.com/vrc2t'
 
 async function packEmotion(projectRoot) {
 	const pinned = JSON.parse(await fs.readFile(EMOTION_MANIFEST, 'utf8'))
@@ -40,7 +40,7 @@ async function packEmotion(projectRoot) {
 
 	const updated = {
 		...pinned,
-		url: `${REPOSITORY}/releases/download/${pinned.tag}/${pinned.name}`,
+		url: `${CDN}/${pinned.tag}/${pinned.name}`,
 		bytes: (await fs.stat(archive)).size,
 		unpackedBytes: await directorySize(source),
 		sha512: await hashFile(archive, 'sha512'),
