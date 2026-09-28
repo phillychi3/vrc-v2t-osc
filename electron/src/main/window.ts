@@ -12,7 +12,14 @@ export function getMainWindow(): BrowserWindow | null {
 	return mainWindow
 }
 
-export async function createSplashWindow(): Promise<BrowserWindow> {
+/** Localized text for the splash page, which loads before any settings UI. */
+export interface SplashText {
+	locale: string
+	loading: string
+	busy: string
+}
+
+export async function createSplashWindow(text?: SplashText): Promise<BrowserWindow> {
 	const window = new BrowserWindow({
 		width: 420,
 		height: 260,
@@ -34,6 +41,14 @@ export async function createSplashWindow(): Promise<BrowserWindow> {
 		if (splashWindow === window) splashWindow = null
 	})
 	await window.loadFile(splashHtml)
+	if (text) {
+		// executeJavaScript is not subject to the page's CSP; values are JSON-encoded.
+		await window.webContents.executeJavaScript(
+			`document.documentElement.lang = ${JSON.stringify(text.locale)};` +
+				`document.querySelector('p').textContent = ${JSON.stringify(text.loading)};` +
+				`document.querySelector('.loader').setAttribute('aria-label', ${JSON.stringify(text.busy)});`
+		)
+	}
 	window.show()
 	return window
 }

@@ -222,7 +222,7 @@ class TranslationTests(unittest.TestCase):
 
     def test_deepl_provider_requires_api_key(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
-            with self.assertRaisesRegex(ValueError, "API Key 不可為空"):
+            with self.assertRaisesRegex(ValueError, "DeepL API 金鑰"):
                 DeepLTranslationProvider({"plan": "free"})
 
 

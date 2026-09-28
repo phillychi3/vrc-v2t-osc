@@ -47,6 +47,9 @@ async function boot(response = 1, sourceText = source) {
 			}
 		},
 		registerIpcHandlers: () => undefined,
+		t: (key) => key,
+		setLanguagePreference: () => undefined,
+		currentLocale: () => 'zh-TW',
 		OverlayController: class {
 			handleEvent() {}
 			reset() {}

@@ -36,6 +36,8 @@ export interface AppInfo {
 	}
 }
 
+import type { LanguagePreference } from './i18n-core.js'
+
 export interface BackendSettings {
 	schemaVersion: 1
 	audio: { deviceId: string; speakerDeviceId: string; autoStart: boolean }
@@ -55,6 +57,7 @@ export interface BackendSettings {
 	emotion: { enabled: boolean; parameter: string }
 	privacy: { saveAudio: boolean; saveTranscripts: boolean }
 	overlay: OverlaySettings
+	ui: { language: LanguagePreference }
 }
 
 export type OverlayAnchor = 'head' | 'leftHand' | 'rightHand'
@@ -161,7 +164,13 @@ export type BackendResponse =
 
 export interface BackendRequestMap {
 	'system.initialize': {
-		params: { settings: BackendSettings; dataPath: string; suppressAutoStart?: boolean }
+		params: {
+			settings: BackendSettings
+			dataPath: string
+			suppressAutoStart?: boolean
+			/** OS languages, so the backend can resolve `ui.language: auto`. */
+			systemLanguages?: string[]
+		}
 		result: BackendState
 	}
 	'system.getState': { params: Record<string, never>; result: BackendState }

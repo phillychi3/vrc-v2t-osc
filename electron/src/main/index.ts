@@ -3,12 +3,16 @@ import { registerIpcHandlers } from './ipc.js'
 import { applySecurityPolicy } from './security.js'
 import { closeSplashWindow, createMainWindow, createSplashWindow, getMainWindow } from './window.js'
 import { BackendProcess } from './backend-process.js'
-import { IpcChannel } from '../shared/ipc.js'
+import { IpcChannel, type BackendSettings } from '../shared/ipc.js'
 import { SettingsStore } from './settings-store.js'
 import { resolveBackendCommand } from './backend-command.js'
 import { OverlayController } from './overlay-controller.js'
+import { currentLocale, setLanguagePreference, t } from './i18n.js'
 
-const backend = new BackendProcess(resolveBackendCommand())
+const backend = new BackendProcess(resolveBackendCommand(), {
+	translate: t,
+	systemLanguages: () => app.getPreferredSystemLanguages()
+})
 let quitting = false
 
 if (!app.requestSingleInstanceLock()) {
@@ -31,14 +35,24 @@ async function bootstrap(): Promise<void> {
 	await app.whenReady()
 
 	applySecurityPolicy()
-	const splash = await createSplashWindow()
 	const settingsStore = new SettingsStore(app.getPath('userData'))
+	// Settings load first so the splash screen already speaks the right language.
+	const settings = await settingsStore.load()
+	setLanguagePreference(settings.ui?.language)
+	const splash = await createSplashWindow({
+		locale: currentLocale(),
+		loading: t('startup.loading'),
+		busy: t('common.loading')
+	})
 	const overlay = new OverlayController(backend, app.getPath('userData'), async (patch) => {
 		const result = await backend.request('settings.update', { patch }, 120_000)
 		await settingsStore.save(result.settings)
 	})
 	app.once('before-quit', () => overlay.dispose())
 	backend.on('event', (event) => {
+		const data = event.data as { settings?: BackendSettings } | null
+		if ((event.event === 'backend.ready' || event.event === 'settings.changed') && data?.settings)
+			setLanguagePreference(data.settings.ui?.language)
 		overlay.handleEvent(event)
 		getMainWindow()?.webContents.send(IpcChannel.BackendEvent, event)
 	})
@@ -47,7 +61,6 @@ async function bootstrap(): Promise<void> {
 		overlay.reset()
 		getMainWindow()?.webContents.send(IpcChannel.BackendFailure, error.message)
 	})
-	const settings = await settingsStore.load()
 	registerIpcHandlers(backend, settingsStore, () => !quitting, {
 		preview: () => overlay.preview(),
 		calibrate: () => overlay.calibrate()
@@ -56,17 +69,17 @@ async function bootstrap(): Promise<void> {
 		while (!quitting) {
 			try {
 				const state = await backend.start(settings, app.getPath('userData'))
-				if (state.models.speech?.status !== 'ready') throw new Error('語音模型載入失敗')
+				if (state.models.speech?.status !== 'ready') throw new Error(t('startup.speechFailed'))
 				break
 			} catch (error) {
 				if (quitting) return
 				await backend.stop()
 				const { response } = await dialog.showMessageBox(splash, {
 					type: 'error',
-					title: '無法啟動語音模型',
-					message: '語音模型尚未載入完成，請確認網路與模型檔案後重試。',
+					title: t('startup.title'),
+					message: t('startup.message'),
 					detail: error instanceof Error ? error.message : String(error),
-					buttons: ['重試', '退出'],
+					buttons: [t('startup.retry'), t('startup.quit')],
 					defaultId: 0,
 					cancelId: 1
 				})

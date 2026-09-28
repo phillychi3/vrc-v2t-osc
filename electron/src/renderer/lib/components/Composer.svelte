@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '$lib/i18n'
 	let {
 		disabled = false,
 		onSend
@@ -48,10 +49,10 @@
 	>
 		<textarea
 			bind:value={text}
-			aria-label="聊天文字"
+			aria-label={$t('composer.aria')}
 			rows="1"
 			maxlength="1000"
-			placeholder="輸入文字，按 Enter 送到 VRChat 聊天框"
+			placeholder={$t('composer.placeholder')}
 			{disabled}
 			onkeydown={handleKeydown}
 			oncompositionstart={() => (composing = true)}
@@ -63,7 +64,7 @@
 			disabled={disabled || sending || !text.trim()}
 			onclick={() => void send()}
 			class="btn-accent size-12 shrink-0 rounded-xl"
-			aria-label="傳送文字"
+			aria-label={$t('composer.send')}
 		>
 			<span
 				class="{sending ? 'i-carbon-circle-dash animate-spin' : 'i-carbon-send-alt-filled'} size-5"
@@ -71,9 +72,9 @@
 		</button>
 	</div>
 	<div class="mt-1.5 flex justify-between px-2 text-xs text-[var(--text-subtle)]">
-		<span>Shift + Enter 換行</span>
+		<span>{$t('composer.newline')}</span>
 		<span class={tooLong ? 'font-semibold text-red-500' : ''}>
-			{length} / {CHATBOX_LIMIT}{tooLong ? '，超過 VRChat 上限' : ''}
+			{length} / {CHATBOX_LIMIT}{tooLong ? ` · ${$t('composer.overLimit')}` : ''}
 		</span>
 	</div>
 </div>

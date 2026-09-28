@@ -14,6 +14,7 @@ from urllib.request import Request as UrlRequest
 from urllib.request import urlopen
 
 from backend.nllb import MODEL_ID, NllbTranslator
+from backend.i18n import t
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,7 @@ class OnnxTranslationProvider:
     def __init__(self, options: dict[str, Any]) -> None:
         model_name = _string_option(options, "model", MODEL_ID)
         if model_name != MODEL_ID:
-            raise ValueError("不支援的本機 ONNX 翻譯模型")
+            raise ValueError(t("backend.translation.unsupportedModel"))
         self._translator = NllbTranslator()
 
     def translate(self, request: TranslationRequest) -> str:
@@ -108,7 +109,7 @@ class OnnxTranslationProvider:
     @classmethod
     def _language_code(cls, language: str) -> str:
         if language == "auto":
-            raise ValueError("本機 ONNX 翻譯需要明確的來源語言")
+            raise ValueError(t("backend.translation.needsSource"))
         return cls._LANGUAGES.get(language, language)
 
 
@@ -119,9 +120,9 @@ class LibreTranslateProvider:
         endpoint = _string_option(options, "endpoint", "http://127.0.0.1:5000")
         parsed = urlparse(endpoint)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-            raise ValueError("LibreTranslate endpoint 必須是有效的 HTTP(S) URL")
+            raise ValueError(t("backend.translation.invalidEndpoint"))
         if parsed.username or parsed.password:
-            raise ValueError("LibreTranslate endpoint 不可包含帳號或密碼")
+            raise ValueError(t("backend.translation.endpointCredentials"))
         self._endpoint = endpoint.rstrip("/")
         if not self._endpoint.endswith("/translate"):
             self._endpoint += "/translate"
@@ -152,7 +153,9 @@ class LibreTranslateProvider:
             result = json.loads(response.read().decode("utf-8"))
         translated = result.get("translatedText") if isinstance(result, dict) else None
         if not isinstance(translated, str) or not translated.strip():
-            raise RuntimeError("LibreTranslate 回傳了無效結果")
+            raise RuntimeError(
+                t("backend.translation.invalidResult", provider="LibreTranslate")
+            )
         return translated.strip()
 
     def close(self) -> None:
@@ -194,7 +197,7 @@ class DeepLTranslationProvider:
             options.get("apiKey") or os.environ.get("DEEPL_API_KEY", "")
         ).strip()
         if not self._api_key:
-            raise ValueError("DeepL API Key 不可為空")
+            raise ValueError(t("backend.translation.deeplKeyMissing"))
         timeout = options.get("timeoutSeconds", 15)
         if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
             raise ValueError("timeoutSeconds 必須是數字")
@@ -228,7 +231,7 @@ class DeepLTranslationProvider:
             else None
         )
         if not isinstance(translated, str) or not translated.strip():
-            raise RuntimeError("DeepL 回傳了無效結果")
+            raise RuntimeError(t("backend.translation.invalidResult", provider="DeepL"))
         return translated.strip()
 
     def close(self) -> None:
@@ -247,7 +250,8 @@ def create_default_translation_factory() -> TranslationProviderFactory:
     factory = TranslationProviderFactory()
     factory.register(
         "onnx",
-        label="本機 NLLB ONNX（CPU）",
+        # A message key: translated when listed, in the current interface language.
+        label="backend.translation.onnxLabel",
         local=True,
         builder=OnnxTranslationProvider,
     )
@@ -312,7 +316,9 @@ class TranslationService:
         return [
             {
                 "id": provider.provider_id,
-                "label": provider.label,
+                "label": t(provider.label)
+                if provider.label.startswith("backend.")
+                else provider.label,
                 "local": provider.local,
             }
             for provider in self._factory.available()

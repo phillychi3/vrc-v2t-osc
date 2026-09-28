@@ -16,6 +16,8 @@ SPEECH_MODELS = {
 }
 TRANSLATION_MODELS = {MODEL_ID}
 OVERLAY_ANCHORS = {"head", "leftHand", "rightHand"}
+# Interface languages; "auto" follows the operating system.
+UI_LANGUAGES = {"auto", "zh-TW", "zh-CN", "en", "ja"}
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -61,6 +63,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         # Row-major 3x4 resting pose on the anchor, captured by calibration.
         "basis": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
     },
+    "ui": {"language": "auto"},
 }
 
 _ALLOWED_KEYS = {
@@ -97,6 +100,7 @@ _ALLOWED_KEYS = {
         "watchMode",
         "basis",
     },
+    "ui": {"language"},
 }
 
 
@@ -212,6 +216,8 @@ def _validate_values(settings: dict[str, Any]) -> None:
         raise SettingsError("overlay.basis 必須是 12 個數字")
     for value in basis:
         _require_number(value, "overlay.basis", -10.0, 10.0)
+    if settings["ui"]["language"] not in UI_LANGUAGES:
+        raise SettingsError("ui.language 不是支援的介面語言")
 
 
 def _require_string(value: object, path: str) -> str:

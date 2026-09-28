@@ -7,6 +7,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
+from backend.i18n import t
 from backend.runtime import cpu_session, emotion_model_directory
 
 
@@ -113,12 +114,14 @@ class EmotionService:
             if not (directory / "model.onnx").is_file():
                 # The installer only downloads this model when the user ticks
                 # the box, so a packaged build can legitimately be without it.
-                hint = (
-                    "重新執行安裝程式並勾選「安裝情緒辨識模型」"
+                hint = t(
+                    "backend.emotion.reinstallHint"
                     if getattr(sys, "frozen", False)
-                    else "請先執行 scripts/export-emotion.py"
+                    else "backend.emotion.exportHint"
                 )
-                raise FileNotFoundError(f"缺少情緒 ONNX 模型，{hint}：{directory}")
+                raise FileNotFoundError(
+                    t("backend.emotion.missingModel", hint=hint, path=directory)
+                )
             tokenizer = AutoTokenizer.from_pretrained(
                 str(directory), local_files_only=True
             )
@@ -142,7 +145,7 @@ class EmotionService:
             logging.exception("Failed to load emotion model")
             if not self._closed.is_set():
                 self._on_model_status("failed", None)
-                self._on_error(f"情緒分析模型載入失敗：{exc}")
+                self._on_error(t("backend.emotion.loadFailed", error=exc))
 
     def _run(self) -> None:
         while not self._closed.is_set():
@@ -160,7 +163,7 @@ class EmotionService:
             except Exception as exc:
                 logging.exception("Emotion inference failed")
                 if not self._closed.is_set():
-                    self._on_error(f"情緒辨識失敗：{exc}")
+                    self._on_error(t("backend.emotion.failed", error=exc))
             finally:
                 self._queue.task_done()
 
@@ -183,5 +186,5 @@ class EmotionService:
         }
         logits = model.run(["logits"], feeds)[0]
         if logits.shape != (1, 8) or not np.isfinite(logits).all():
-            raise RuntimeError("情緒 ONNX 模型輸出格式不正確")
+            raise RuntimeError(t("backend.emotion.invalidOutput"))
         return int(np.argmax(logits[0]))

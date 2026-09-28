@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '$lib/i18n'
 	import { onMount } from 'svelte'
 	import AppHeader from '$lib/components/AppHeader.svelte'
 	import Composer from '$lib/components/Composer.svelte'
@@ -83,13 +84,13 @@
 					disabled={$backendRestarting}
 					onclick={() => void backend.restart()}
 				>
-					{$backendRestarting ? '重新啟動中…' : '重新啟動後端'}
+					{$backendRestarting ? $t('app.restarting') : $t('app.restart')}
 				</button>
 			{:else}
 				<button
 					type="button"
 					class="btn-ghost size-10 shrink-0 p-0 text-red-600 dark:text-red-300"
-					aria-label="關閉訊息"
+					aria-label={$t('app.dismiss')}
 					onclick={() => backend.dismissError()}
 				>
 					<span class="i-carbon-close size-5"></span>

@@ -17,6 +17,7 @@ from typing import Any
 
 from backend.inference import inference_lock
 from backend.audio import ResampleState, normalize_audio
+from backend.i18n import t
 from backend.runtime import (
     backend_variant,
     configure_native_runtime,
@@ -240,7 +241,7 @@ class VoiceService:
             logging.exception("Failed to load speech runtime")
             if not self._closed.is_set():
                 self._on_model_status("failed", None)
-                self._on_error(f"語音執行環境載入失敗：{exc}")
+                self._on_error(t("backend.voice.runtimeFailed", error=exc))
             return
         if self._closed.is_set():
             return
@@ -260,7 +261,7 @@ class VoiceService:
         try:
             import pyaudiowpatch as pyaudio
         except ImportError as exc:
-            raise VoiceError("找不到 PyAudioWPatch，無法列舉錄音裝置") from exc
+            raise VoiceError(t("backend.voice.noPyAudio")) from exc
         audio = active_audio if active_audio is not None else pyaudio.PyAudio()
         devices: list[dict[str, object]] = []
         try:
@@ -300,7 +301,7 @@ class VoiceService:
                     0,
                     {
                         "id": "default",
-                        "name": "系統預設麥克風",
+                        "name": t("backend.voice.defaultMicrophone"),
                         "hostApi": "",
                         "maxInputChannels": 1,
                         "isDefault": True,
@@ -312,7 +313,7 @@ class VoiceService:
                     0,
                     {
                         "id": "speaker:default",
-                        "name": "系統預設喇叭",
+                        "name": t("backend.voice.defaultSpeaker"),
                         "hostApi": "WASAPI",
                         "maxInputChannels": 2,
                         "isDefault": True,
@@ -326,14 +327,14 @@ class VoiceService:
 
     def start(self, device_id: str, source: str = "microphone") -> None:
         if source not in {"microphone", "speaker"}:
-            raise VoiceError("不支援的音訊來源")
+            raise VoiceError(t("backend.voice.unsupportedSource"))
         with self._lock:
             if source in self._sessions:
                 return
             if self._closed.is_set():
-                raise VoiceError("語音服務已關閉")
+                raise VoiceError(t("backend.voice.closed"))
             if not self._ready:
-                raise VoiceError("語音模型尚未載入完成")
+                raise VoiceError(t("backend.voice.notReady"))
         self._on_recording_state("starting", source)
         try:
             audio = self._get_audio_manager()
@@ -343,10 +344,10 @@ class VoiceService:
                 else:
                     speaker_index = self._resolve_device_index(audio, device_id, source)
                     if speaker_index is None:
-                        raise VoiceError("喇叭裝置 ID 無效")
+                        raise VoiceError(t("backend.voice.invalidSpeaker"))
                     device = audio.get_device_info_by_index(speaker_index)
                     if not bool(device.get("isLoopbackDevice", False)):
-                        raise VoiceError("選取的裝置不是可用的喇叭回放裝置")
+                        raise VoiceError(t("backend.voice.notLoopback"))
                 input_device_index = int(device["index"])
                 input_rate = int(device["defaultSampleRate"])
                 input_channels = max(1, int(device["maxInputChannels"]))
@@ -390,7 +391,7 @@ class VoiceService:
             )
         except Exception as exc:
             self._on_recording_state("error", source)
-            raise VoiceError(f"無法開啟錄音裝置：{exc}") from exc
+            raise VoiceError(t("backend.voice.openFailed", error=exc)) from exc
         session.thread = threading.Thread(
             target=self._capture_loop,
             args=(session,),
@@ -400,7 +401,7 @@ class VoiceService:
         with self._lock:
             if self._closed.is_set() or source in self._sessions:
                 session.close_stream()
-                raise VoiceError("音訊來源狀態已變更")
+                raise VoiceError(t("backend.voice.sourceChanged"))
             self._sessions[source] = session
             session.thread.start()
             session.stream.start_stream()
@@ -408,7 +409,7 @@ class VoiceService:
 
     def stop(self, source: str | None = None) -> None:
         if source is not None and source not in {"microphone", "speaker"}:
-            raise VoiceError("不支援的音訊來源")
+            raise VoiceError(t("backend.voice.unsupportedSource"))
         with self._lock:
             sources = [source] if source else list(self._sessions)
             sessions = [
@@ -541,7 +542,7 @@ class VoiceService:
             logging.exception("Failed to load speech models")
             if not self._closed.is_set():
                 self._on_model_status("failed", None)
-                self._on_error(f"語音模型載入失敗：{exc}")
+                self._on_error(t("backend.voice.modelFailed", error=exc))
 
     def _capture_loop(self, session: _CaptureSession) -> None:
         rate = 16000
@@ -617,7 +618,13 @@ class VoiceService:
                         session.close_stream()
                         self._sessions.pop(session.source, None)
                 self._close_capture(session)
-                self._on_error(f"{self._source_label(session.source)}擷取失敗：{exc}")
+                self._on_error(
+                    t(
+                        "backend.voice.captureFailed",
+                        source=self._source_label(session.source),
+                        error=exc,
+                    )
+                )
                 self._on_recording_state("error", session.source)
         finally:
             # The reading thread always closes its own stream, so a stop that
@@ -667,9 +674,7 @@ class VoiceService:
                         transcript_source,
                         wait_seconds,
                     )
-                    self._on_error(
-                        "辨識速度跟不上，已略過過期音訊；請改用自動或較小的語音模型"
-                    )
+                    self._on_error(t("backend.voice.tooSlow"))
                     continue
                 if self._needs_english_retry(transcript_source, language, text):
                     with inference_lock():
@@ -698,7 +703,7 @@ class VoiceService:
             except Exception as exc:
                 logging.exception("Transcription failed")
                 if not self._closed.is_set():
-                    self._on_error(f"語音辨識失敗：{exc}")
+                    self._on_error(t("backend.voice.recognitionFailed", error=exc))
             finally:
                 self._segments.task_done()
 
@@ -759,7 +764,7 @@ class VoiceService:
         if device_id == "default" and source == "microphone":
             return None
         if not device_id.startswith("device:"):
-            raise VoiceError("裝置識別碼已過期，請重新整理並選擇裝置")
+            raise VoiceError(t("backend.voice.staleDevice"))
         matches = []
         for index in range(audio.get_device_count()):
             info = audio.get_device_info_by_index(index)
@@ -770,12 +775,16 @@ class VoiceService:
             ):
                 matches.append(index)
         if len(matches) != 1:
-            raise VoiceError("所選裝置不存在或無法唯一識別，請重新整理並選擇裝置")
+            raise VoiceError(t("backend.voice.unknownDevice"))
         return matches[0]
 
     @staticmethod
     def _source_label(source: str) -> str:
-        return "喇叭" if source == "speaker" else "麥克風"
+        return t(
+            "backend.voice.source.speaker"
+            if source == "speaker"
+            else "backend.voice.source.microphone"
+        )
 
     @staticmethod
     def _normalize_language(language: str) -> str | None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 
 from backend.runtime import cpu_session
+from backend.i18n import t
 
 MODEL_ID = "venddair/nllb-200-distilled-600M-onnx"
 MODEL_REVISION = "714bc338a10f51a2f5567ff355aab76f21de8a91"
@@ -78,7 +79,7 @@ class NllbTranslator:
             target_id = tokenizer.convert_tokens_to_ids(target)
             source_id = tokenizer.convert_tokens_to_ids(source)
             if target_id == tokenizer.unk_token_id or source_id == tokenizer.unk_token_id:
-                raise ValueError("不支援的 NLLB 翻譯語言")
+                raise ValueError(t("backend.nllb.unsupportedLanguage"))
             tokenizer.src_lang = source
             encoded = tokenizer(
                 text, return_tensors="np", truncation=True, max_length=512
@@ -105,7 +106,7 @@ class NllbTranslator:
                 )[0]
                 scores = logits[0, -1].copy()
                 if not np.isfinite(scores).all():
-                    raise RuntimeError("翻譯模型回傳無效的 logits")
+                    raise RuntimeError(t("backend.nllb.invalidOutput"))
                 # These are control tokens, never generated translation text.
                 scores[tokenizer.bos_token_id] = -np.inf
                 scores[tokenizer.pad_token_id] = -np.inf
@@ -118,7 +119,7 @@ class NllbTranslator:
             # Reaching the length bound keeps the text translated so far.
             translated = tokenizer.decode(ids[2:], skip_special_tokens=True).strip()
             if not translated:
-                raise RuntimeError("本機翻譯模型沒有回傳文字")
+                raise RuntimeError(t("backend.nllb.emptyOutput"))
             return translated
 
     def close(self) -> None:

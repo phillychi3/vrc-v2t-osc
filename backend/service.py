@@ -8,6 +8,8 @@ from copy import deepcopy
 from typing import Any, Protocol
 
 from backend.osc import OscService, text_rejection_reason
+from backend import i18n
+from backend.i18n import t
 from backend.protocol import Request
 from backend.settings import apply_patch, default_settings, validate_settings
 
@@ -154,9 +156,9 @@ class BackendService:
         if handler is None:
             raise ServiceError("METHOD_NOT_FOUND", f"未知方法: {request.method}")
         if request.method != "system.initialize" and self._lifecycle == "starting":
-            raise ServiceError("NOT_INITIALIZED", "後端尚未初始化", retryable=True)
+            raise ServiceError("NOT_INITIALIZED", t("backend.notInitialized"), retryable=True)
         if self._lifecycle in {"stopping", "stopped"}:
-            raise ServiceError("SHUTTING_DOWN", "後端正在關閉")
+            raise ServiceError("SHUTTING_DOWN", t("backend.shuttingDown"))
         return handler(request.params)
 
     def close(self) -> None:
@@ -201,6 +203,11 @@ class BackendService:
                 raise ServiceError("INVALID_PARAMS", "dataPath 必須是非空字串")
             self._data_path = data_path
             self._suppress_auto_start = params.get("suppressAutoStart") is True
+            system_languages = params.get("systemLanguages")
+            i18n.configure(
+                self._settings["ui"]["language"],
+                system_languages if isinstance(system_languages, list) else None,
+            )
             self._replace_osc()
             self._lifecycle = "ready"
             ready_state = self._state()
@@ -263,7 +270,7 @@ class BackendService:
     def _start_recording(self, params: dict[str, Any]) -> object:
         voice = self._voice
         if voice is None:
-            raise ServiceError("AUDIO_UNAVAILABLE", "錄音服務尚未提供", retryable=True)
+            raise ServiceError("AUDIO_UNAVAILABLE", t("backend.audioUnavailable"), retryable=True)
         source = params.get("source", "microphone")
         if source not in {"microphone", "speaker"}:
             raise ServiceError("INVALID_PARAMS", "source 必須是 microphone 或 speaker")
@@ -320,7 +327,7 @@ class BackendService:
         if translation is None:
             raise ServiceError(
                 "TRANSLATION_UNAVAILABLE",
-                "翻譯服務尚未提供",
+                t("backend.translationUnavailable"),
                 retryable=True,
             )
         provider = self._required_string(params, "provider")
@@ -350,7 +357,7 @@ class BackendService:
         if job_id is None:
             raise ServiceError(
                 "TRANSLATION_OVERLOADED",
-                "翻譯佇列已滿，請稍後再試",
+                t("backend.translationBusy"),
                 retryable=True,
             )
         return {"jobId": job_id, "accepted": True}
@@ -358,7 +365,7 @@ class BackendService:
     def _overlay_image(self, params: dict[str, Any]) -> tuple[OverlayProtocol, str]:
         overlay = self._overlay
         if overlay is None:
-            raise ServiceError("OVERLAY_UNAVAILABLE", "VR 字幕服務尚未提供")
+            raise ServiceError("OVERLAY_UNAVAILABLE", t("backend.overlayUnavailable"))
         path = self._required_string(params, "path")
         root = Path(str(self._data_path), "overlay").resolve()
         image = Path(path).resolve()
@@ -376,7 +383,7 @@ class BackendService:
         # `update` only refreshes the prompt of a calibration already running.
         if not overlay.calibrate(prompt, params.get("update") is True):
             raise ServiceError(
-                "OVERLAY_NOT_READY", "請先連線 SteamVR，並把字幕放在手上再校準"
+                "OVERLAY_NOT_READY", t("backend.overlayNotReady")
             )
         return {"accepted": True}
 
@@ -406,24 +413,25 @@ class BackendService:
             self._recordings["microphone"] not in {"idle", "error"}
             and candidate["audio"]["deviceId"] != old_device
         ):
-            raise ServiceError("RECORDING_ACTIVE", "請先停止錄音再更換裝置")
+            raise ServiceError("RECORDING_ACTIVE", t("backend.stopRecordingForDevice"))
         if (
             self._recordings["speaker"] not in {"idle", "error"}
             and candidate["audio"]["speakerDeviceId"] != old_speaker_device
         ):
-            raise ServiceError("RECORDING_ACTIVE", "請先停止喇叭辨識再更換裝置")
+            raise ServiceError("RECORDING_ACTIVE", t("backend.stopSpeakerForDevice"))
         speech_model_changed = candidate["speech"]["model"] != old_speech_model
         if speech_model_changed and any(
             state not in {"idle", "error"} for state in self._recordings.values()
         ):
-            raise ServiceError("RECORDING_ACTIVE", "請先停止錄音再更換語音模型")
+            raise ServiceError("RECORDING_ACTIVE", t("backend.stopRecordingForModel"))
         if speech_model_changed and self._models["speech"]["status"] == "loading":
             raise ServiceError(
                 "MODEL_LOADING",
-                "語音模型正在載入，請稍後再更換",
+                t("backend.modelLoading"),
                 retryable=True,
             )
         self._settings = candidate
+        i18n.configure(candidate["ui"]["language"])
         if speech_model_changed and self._voice_factory is not None:
             old_voice, self._voice = self._voice, None
             if old_voice is not None:
@@ -478,7 +486,7 @@ class BackendService:
         reason = text_rejection_reason(text)
         if reason in {"too_long", "too_many_lines"}:
             raise ServiceError(
-                "TEXT_TOO_LONG", "聊天文字最多 144 字（含表情符號長度）及 9 行"
+                "TEXT_TOO_LONG", t("backend.textTooLong")
             )
         utterance_id = str(uuid.uuid4())
         self._emit(
@@ -757,7 +765,7 @@ class BackendService:
                 "translation.error",
                 {
                     "jobId": "",
-                    "message": "翻譯佇列已滿，已傳送原始文字",
+                    "message": t("backend.translationBusySentOriginal"),
                     "context": {"utteranceId": utterance_id},
                 },
             )

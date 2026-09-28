@@ -8,6 +8,7 @@ import threading
 from typing import Any
 
 from backend.emotion import EmotionService
+from backend.i18n import t
 from backend.overlay import OverlayService
 from backend.protocol import (
     ProtocolError,
@@ -87,7 +88,7 @@ def main() -> int:
             except Exception:
                 logging.exception("Unhandled backend error")
                 writer.send(
-                    response_error(request_id, "INTERNAL_ERROR", "後端發生未預期錯誤")
+                    response_error(request_id, "INTERNAL_ERROR", t("backend.internalError"))
                 )
             if service.stopped:
                 break

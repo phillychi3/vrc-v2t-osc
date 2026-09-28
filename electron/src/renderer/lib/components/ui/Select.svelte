@@ -1,4 +1,5 @@
 <script lang="ts" generics="T extends string">
+	import { t } from '$lib/i18n'
 	/**
 	 * A dropdown drawn inside the page. Native <select> menus open as separate
 	 * OS windows, which desktop-capture overlays in VR (XSOverlay, OVR Toolkit,
@@ -17,7 +18,7 @@
 		options,
 		disabled = false,
 		ariaLabel,
-		placeholder = '請選擇',
+		placeholder,
 		onChange
 	}: {
 		id?: string
@@ -105,7 +106,9 @@
 		onclick={() => (open ? (open = false) : show())}
 		onkeydown={handleKeydown}
 	>
-		<span class="min-w-0 flex-1 truncate text-left">{selected?.label ?? placeholder}</span>
+		<span class="min-w-0 flex-1 truncate text-left"
+			>{selected?.label ?? placeholder ?? $t('common.select')}</span
+		>
 		<span
 			class="i-carbon-chevron-down size-4 shrink-0 text-zinc-400 transition-transform {open
 				? 'rotate-180'

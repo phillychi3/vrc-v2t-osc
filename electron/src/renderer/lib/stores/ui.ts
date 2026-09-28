@@ -1,4 +1,5 @@
 import { writable } from 'svelte/store'
+import type { MessageKey } from '$shared/i18n'
 
 /**
  * Interface size. In VR the window is usually read through a desktop overlay
@@ -7,10 +8,10 @@ import { writable } from 'svelte/store'
  */
 export type UiScale = 'standard' | 'large' | 'xlarge'
 
-export const UI_SCALES: { value: UiScale; label: string; rootPx: number }[] = [
-	{ value: 'standard', label: '標準', rootPx: 16 },
-	{ value: 'large', label: '大', rootPx: 18 },
-	{ value: 'xlarge', label: '特大', rootPx: 20 }
+export const UI_SCALES: { value: UiScale; label: MessageKey; rootPx: number }[] = [
+	{ value: 'standard', label: 'interface.scale.standard', rootPx: 16 },
+	{ value: 'large', label: 'interface.scale.large', rootPx: 18 },
+	{ value: 'xlarge', label: 'interface.scale.xlarge', rootPx: 20 }
 ]
 
 const STORAGE_KEY = 'vrc2t.uiScale'

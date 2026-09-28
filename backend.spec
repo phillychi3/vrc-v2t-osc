@@ -20,6 +20,8 @@ marker_dir.mkdir(parents=True, exist_ok=True)
     json.dumps({"variant": variant}), encoding="utf-8"
 )
 datas = collect_data_files("faster_whisper") + [(str(marker_dir / "runtime.json"), ".")]
+# Crowdin-managed UI catalogs; backend/i18n.py reads them from <_MEIPASS>/locales.
+datas += [(str(path), "locales") for path in (project_root / "locales").glob("*.json")]
 binaries = collect_dynamic_libs("ctranslate2") + collect_dynamic_libs("onnxruntime")
 # pyopenvr loads its bundled 64-bit openvr_api from the package directory.
 binaries += [

@@ -8,6 +8,7 @@ from collections import deque
 from collections.abc import Callable
 from copy import deepcopy
 from typing import Any, Protocol
+from backend.i18n import t
 
 
 logger = logging.getLogger(__name__)
@@ -223,7 +224,7 @@ class CalibrationTracker:
         # (time, controller position in the room, looked-at spot in controller
         # space) while the pose holds.
         self._samples: deque[tuple[float, list[float], list[float]]] = deque()
-        self.hint = "等待控制器位置…"
+        self.hint = t("backend.calibration.waiting")
         self._problems: dict[str, int] = {}
         self._problem_hints: dict[str, str] = {}
 
@@ -239,7 +240,7 @@ class CalibrationTracker:
     def failure_reason(self) -> str:
         """The most frequent blocker during the attempt, for a timeout message."""
         if not self._problems:
-            return "沒有收到控制器位置"
+            return t("backend.calibration.noData")
         problem = max(self._problems, key=self._problems.__getitem__)
         return self._problem_hints[problem]
 
@@ -248,11 +249,11 @@ class CalibrationTracker:
         distance = math.dist(_column(hmd, 3), position)
         if distance > CALIBRATION_FAR_METERS:
             self._samples.clear()
-            self.note("far", f"手臂離眼睛太遠（{distance:.2f} m），請再抬近一點")
+            self.note("far", t("backend.calibration.far", distance=f"{distance:.2f}"))
             return None
         if distance < CALIBRATION_NEAR_METERS:
             self._samples.clear()
-            self.note("near", f"手臂離眼睛太近（{distance:.2f} m），請放遠一點")
+            self.note("near", t("backend.calibration.near", distance=f"{distance:.2f}"))
             return None
         target = gaze_point(hmd, device)
         reach = math.dist(target, position)
@@ -260,8 +261,11 @@ class CalibrationTracker:
             self._samples.clear()
             self.note(
                 "arm",
-                f"請看著手臂上要戴手錶的位置（目前視線離手 {reach * 100:.0f} cm，"
-                f"需在 {CALIBRATION_ARM_REACH_METERS * 100:.0f} cm 內）",
+                t(
+                    "backend.calibration.lookAtArm",
+                    reach=f"{reach * 100:.0f}",
+                    limit=f"{CALIBRATION_ARM_REACH_METERS * 100:.0f}",
+                ),
             )
             return None
         # The looked-at spot relative to the hand, so the arm can carry it.
@@ -276,15 +280,21 @@ class CalibrationTracker:
             self._samples.clear()
             self.note(
                 "moving",
-                f"請保持手臂不動（晃動 {hand_drift * 100:.1f} cm，"
-                f"需小於 {CALIBRATION_STILL_METERS * 100:.0f} cm）",
+                t(
+                    "backend.calibration.holdArm",
+                    drift=f"{hand_drift * 100:.1f}",
+                    limit=f"{CALIBRATION_STILL_METERS * 100:.0f}",
+                ),
             )
         elif gaze_drift > CALIBRATION_GAZE_STILL_METERS:
             self._samples.clear()
             self.note(
                 "gaze",
-                f"請讓視線停在手錶的位置（移動 {gaze_drift * 100:.1f} cm，"
-                f"需小於 {CALIBRATION_GAZE_STILL_METERS * 100:.0f} cm）",
+                t(
+                    "backend.calibration.holdGaze",
+                    drift=f"{gaze_drift * 100:.1f}",
+                    limit=f"{CALIBRATION_GAZE_STILL_METERS * 100:.0f}",
+                ),
             )
         self._samples.append((now, position, spot))
         while now - self._samples[0][0] > CALIBRATION_HOLD_SECONDS:
@@ -292,7 +302,10 @@ class CalibrationTracker:
         held = now - self._samples[0][0]
         if held < CALIBRATION_HOLD_SECONDS * 0.95:
             if self._samples[0][0] != now:
-                self.hint = f"很好，保持住… 再 {CALIBRATION_HOLD_SECONDS - held:.1f} 秒"
+                self.hint = t(
+                    "backend.calibration.holding",
+                    seconds=f"{CALIBRATION_HOLD_SECONDS - held:.1f}",
+                )
             return None
         # Average the looked-at spot over the hold to smooth out head jitter.
         count = len(self._samples)
@@ -332,10 +345,10 @@ class OpenVrRuntime:
         try:
             import openvr
         except Exception as exc:
-            raise OverlayUnavailable("無法載入 OpenVR 執行階段") from exc
+            raise OverlayUnavailable(t("backend.overlay.noOpenVR")) from exc
         self._openvr = openvr
         if not openvr.isRuntimeInstalled():
-            raise OverlayUnavailable("未安裝 SteamVR")
+            raise OverlayUnavailable(t("backend.overlay.noSteamVR"))
         # A background probe never launches SteamVR; only attach as an overlay
         # application once the user already has SteamVR running.
         try:
@@ -360,7 +373,7 @@ class OpenVrRuntime:
     def disconnect(self) -> None:
         openvr = self._openvr
         if self._calibration is not None:
-            self._finish_calibration("failed", None, "SteamVR 已中斷連線")
+            self._finish_calibration("failed", None, t("backend.overlay.disconnected"))
         if openvr is None or self._system is None:
             return
         try:
@@ -454,21 +467,27 @@ class OpenVrRuntime:
         now = time.monotonic()
         if tracker.expired(now):
             self._finish_calibration(
-                "failed", None, f"校準逾時：{tracker.failure_reason()}"
+                "failed",
+                None,
+                t("backend.calibration.timeout", reason=tracker.failure_reason()),
             )
             return
         device = self._controller_index()
-        hand = "右" if self._settings and self._settings["anchor"] == "rightHand" else "左"
+        hand = t(
+            "common.right"
+            if self._settings and self._settings["anchor"] == "rightHand"
+            else "common.left"
+        )
         if device is None:
-            tracker.note("controller", f"找不到{hand}手控制器，請確認控制器已開啟")
+            tracker.note("controller", t("backend.calibration.noController", hand=hand))
         else:
             poses = self._read_poses()
             hmd = poses[self._openvr.k_unTrackedDeviceIndex_Hmd]
             controller = poses[device]
             if not hmd.bPoseIsValid:
-                tracker.note("tracking", "頭盔追蹤中斷，請確認頭盔在追蹤範圍內")
+                tracker.note("tracking", t("backend.calibration.hmdLost"))
             elif not controller.bPoseIsValid:
-                tracker.note("tracking", f"{hand}手控制器追蹤中斷，請確認在追蹤範圍內")
+                tracker.note("tracking", t("backend.calibration.controllerLost", hand=hand))
             else:
                 basis = tracker.feed(
                     now,
@@ -703,7 +722,7 @@ class OverlayService:
                         continue
                     except Exception as exc:
                         logger.exception("OpenVR connection failed")
-                        self._set_status("error", str(exc) or "OpenVR 連線失敗")
+                        self._set_status("error", str(exc) or t("backend.overlay.connectFailed"))
                         self._wait(self._retry_interval)
                         continue
                     if not connected:
@@ -722,7 +741,7 @@ class OverlayService:
                     logger.exception("OpenVR overlay update failed")
                     self._disconnect(runtime)
                     connected = False
-                    self._set_status("error", str(exc) or "OpenVR overlay 更新失敗")
+                    self._set_status("error", str(exc) or t("backend.overlay.updateFailed"))
                     self._wait(self._retry_interval)
                     continue
                 if not alive:

@@ -11,6 +11,7 @@ import type {
 	TranslationProviderInfo,
 	TranslationRequest
 } from '$shared/ipc'
+import type { MessageKey } from '$shared/i18n'
 
 export interface Transcript {
 	utteranceId: string
@@ -28,6 +29,16 @@ export interface Transcript {
 }
 
 const state = writable<BackendState | null>(null)
+
+/**
+ * Localizes the store's own errors. Registered by lib/i18n (which derives the
+ * language from this store), keeping catalog imports out of this module.
+ */
+let message: (key: MessageKey) => string = (key) => key
+
+export function setMessageTranslator(translator: (key: MessageKey) => string): void {
+	message = translator
+}
 const error = writable<string | null>(null)
 const failed = writable(false)
 const restarting = writable(false)
@@ -82,7 +93,7 @@ export const backend = {
 	async connect(): Promise<() => void> {
 		const api = window.api?.backend
 		if (!api) {
-			error.set('Backend bridge 無法使用')
+			error.set(message('error.bridgeUnavailable'))
 			return () => undefined
 		}
 		let buffering = true
@@ -118,7 +129,7 @@ export const backend = {
 		restarting.set(true)
 		try {
 			const api = window.api?.backend
-			if (!api) throw new Error('Backend bridge 無法使用')
+			if (!api) throw new Error(message('error.bridgeUnavailable'))
 			const snapshot = await api.restart()
 			applySnapshot(snapshot)
 			failed.set(false)
@@ -147,9 +158,9 @@ export const backend = {
 
 	async translate(text: string, context: Record<string, unknown> = {}): Promise<string> {
 		const current = get(state)
-		if (!current) throw new Error('後端尚未連線')
+		if (!current) throw new Error(message('error.notConnected'))
 		const settings = current.settings.translation
-		if (!settings.enabled) throw new Error('翻譯功能尚未啟用')
+		if (!settings.enabled) throw new Error(message('error.translationDisabled'))
 		let options: TranslationRequest['options'] = { model: settings.model }
 		if (settings.provider === 'libretranslate')
 			options = { endpoint: settings.endpoint, apiKey: settings.apiKey }
@@ -164,7 +175,7 @@ export const backend = {
 				options,
 				context
 			})
-			if (!result) throw new Error('Backend bridge 無法使用')
+			if (!result) throw new Error(message('error.bridgeUnavailable'))
 			clearError()
 			return result.jobId
 		} catch (reason) {

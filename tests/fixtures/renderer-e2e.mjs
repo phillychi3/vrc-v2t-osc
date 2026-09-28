@@ -43,7 +43,9 @@ const settings = {
 		showSpeaker: true,
 		watchMode: false,
 		basis: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]
-	}
+	},
+	// Fixed so the assertions on visible text do not depend on the OS language.
+	ui: { language: 'zh-TW' }
 }
 const state = {
 	sessionId: 'ui-1',

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { t } from '$lib/i18n'
 	import type { BackendState } from '$shared/ipc'
 	import { languageLabel } from '$lib/languages'
 
@@ -28,7 +29,7 @@
 		busy: boolean
 		disabled: boolean
 		detail: string
-		/** Shown instead of 開啟/關閉, e.g. while something is loading. */
+		/** Shown instead of on/off, e.g. while something is loading. */
 		badge?: string
 		onToggle: () => void
 	}
@@ -43,17 +44,17 @@
 	const overlayStatus = $derived(state?.overlay?.status ?? 'disabled')
 
 	function recordingDetail(value: string, listening: string, idle: string, ready: boolean): string {
-		if (value === 'starting') return '正在啟動…'
-		if (value === 'stopping') return '正在停止…'
-		if (value === 'error') return '發生錯誤，按下重試'
+		if (value === 'starting') return $t('home.starting')
+		if (value === 'stopping') return $t('home.stopping')
+		if (value === 'error') return $t('home.recordingError')
 		if (value === 'listening') return listening
-		return ready ? idle : '語音模型載入中…'
+		return ready ? idle : $t('home.modelLoading')
 	}
 
 	const translationDetail = $derived.by(() => {
-		if (!translationAvailable) return '沒有可用的翻譯方式'
-		if (translationStatus === 'loading') return '翻譯模型載入中…'
-		if (translationStatus === 'failed') return '翻譯模型載入失敗'
+		if (!translationAvailable) return $t('home.translationUnavailable')
+		if (translationStatus === 'loading') return $t('home.translationLoading')
+		if (translationStatus === 'failed') return $t('home.translationFailed')
 		if (!translation) return ''
 		const own = languageLabel(
 			translation.sourceLanguage === 'auto'
@@ -64,17 +65,19 @@
 	})
 
 	const overlayDetail = $derived.by(() => {
-		if (!overlay?.enabled) return '在遊戲內顯示字幕'
+		if (!overlay?.enabled) return $t('home.overlayOff')
 		if (overlayStatus === 'connected')
-			return overlay.watchMode && overlay.anchor !== 'head' ? '已連線' : '已連線 SteamVR'
-		if (overlayStatus === 'waiting') return '等待 SteamVR 啟動…'
-		return state?.overlay?.message ?? '無法連線 SteamVR'
+			return overlay.watchMode && overlay.anchor !== 'head'
+				? $t('home.overlayWatch')
+				: $t('home.overlayConnected')
+		if (overlayStatus === 'waiting') return $t('home.overlayWaiting')
+		return state?.overlay?.message ?? $t('home.overlayUnavailable')
 	})
 
 	const tiles = $derived<Tile[]>([
 		{
 			key: 'microphone',
-			title: '我的語音',
+			title: $t('home.microphone'),
 			icon: 'i-carbon-microphone-filled',
 			active: microphone === 'listening',
 			busy: microphone === 'starting' || microphone === 'stopping',
@@ -84,7 +87,7 @@
 		},
 		{
 			key: 'speaker',
-			title: '他人語音',
+			title: $t('home.speaker'),
 			icon: 'i-carbon-volume-up-filled',
 			active: speaker === 'listening',
 			busy: speaker === 'starting' || speaker === 'stopping',
@@ -94,18 +97,18 @@
 		},
 		{
 			key: 'translation',
-			title: '翻譯',
+			title: $t('home.translation'),
 			icon: 'i-carbon-translate',
 			active: translation?.enabled ?? false,
 			busy: translationStatus === 'loading',
 			disabled: !translationAvailable || translationStatus === 'loading',
 			detail: translationDetail,
-			badge: translationStatus === 'loading' ? '載入中' : undefined,
+			badge: translationStatus === 'loading' ? $t('common.loading') : undefined,
 			onToggle: onToggleTranslation
 		},
 		{
 			key: 'overlay',
-			title: 'VR 字幕',
+			title: $t('home.overlay'),
 			icon: 'i-carbon-closed-caption-filled',
 			active: overlay?.enabled ?? false,
 			busy: false,
@@ -116,7 +119,7 @@
 	])
 </script>
 
-<section class="feature-grid-container shrink-0 p-4" aria-label="主要功能">
+<section class="feature-grid-container shrink-0 p-4" aria-label={$t('home.aria')}>
 	<div class="feature-grid">
 		{#each tiles as tile (tile.key)}
 			<button
@@ -132,7 +135,8 @@
 				<span class="min-w-0 flex-1">
 					<span class="flex items-center justify-between gap-2">
 						<strong class="truncate text-base font-bold">{tile.title}</strong>
-						<span class="feature-action-state">{tile.badge ?? (tile.active ? '開啟' : '關閉')}</span
+						<span class="feature-action-state"
+							>{tile.badge ?? (tile.active ? $t('common.on') : $t('common.off'))}</span
 						>
 					</span>
 					<span class="mt-1 line-clamp-2 block text-sm leading-5 text-[var(--text-subtle)]"

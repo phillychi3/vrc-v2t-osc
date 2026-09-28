@@ -91,18 +91,20 @@ test('ignores unrelated or malformed events', () => {
 
 test('placement preview ignores source filters and replaces itself', () => {
 	const board = new CaptionBoard()
-	board.preview(0)
-	board.preview(1_000)
+	const sample = { text: '這是測試字幕', original: 'Test caption' }
+	board.preview(sample, 0)
+	board.preview(sample, 1_000)
 	const lines = board.lines({ showMicrophone: false, showSpeaker: false })
 	assert.equal(lines.length, 1)
-	assert.equal(lines[0].primary, '這是測試字幕，用來調整位置與大小')
+	assert.equal(lines[0].primary, '這是測試字幕')
+	assert.equal(lines[0].secondary, 'Test caption')
 	assert.equal(board.nextExpiry(5_000, 1_000), 5_000)
 })
 
 test('watch faces keep real captions and only expire the placement preview', () => {
 	const board = new CaptionBoard()
 	board.handle(transcript('a', 'kept', 'speaker'), false, 0)
-	board.preview(0)
+	board.preview({ text: 'sample', original: 'sample' }, 0)
 	assert.equal(board.nextExpiry(5_000, 1_000, true), 4_000)
 	assert.ok(board.expire(5_000, 60_000, true))
 	assert.deepEqual(

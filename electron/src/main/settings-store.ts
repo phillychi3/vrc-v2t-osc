@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path'
 import type { BackendSettings, OverlaySettings } from '../shared/ipc.js'
 // A .ts specifier so the Node test runner can load this module directly.
 import { IDENTITY_BASIS, OVERLAY_PRESETS } from '../shared/overlay-presets.ts'
+import { isLanguagePreference } from '../shared/i18n-core.ts'
 
 const DEFAULT_SETTINGS: BackendSettings = {
 	schemaVersion: 1,
@@ -30,7 +31,8 @@ const DEFAULT_SETTINGS: BackendSettings = {
 		showMicrophone: false,
 		showSpeaker: true,
 		basis: [...IDENTITY_BASIS]
-	}
+	},
+	ui: { language: 'auto' }
 }
 
 export class SettingsStore {
@@ -69,6 +71,11 @@ export class SettingsStore {
 /** Fills sections added after a settings file was written. */
 function migrate(value: unknown): unknown {
 	if (!isRecord(value) || value.schemaVersion !== 1) return value
+	if (!('ui' in value)) value = { ...value, ui: structuredClone(DEFAULT_SETTINGS.ui) }
+	return migrateOverlay(value as Record<string, unknown>)
+}
+
+function migrateOverlay(value: Record<string, unknown>): unknown {
 	if (!('overlay' in value)) return { ...value, overlay: structuredClone(DEFAULT_SETTINGS.overlay) }
 	const overlay = value.overlay
 	if (!isRecord(overlay)) return value
@@ -93,7 +100,7 @@ function migrate(value: unknown): unknown {
 
 function isSettings(value: unknown): value is BackendSettings {
 	if (!isRecord(value) || value.schemaVersion !== 1) return false
-	const { audio, speech, translation, osc, emotion, privacy, overlay } = value
+	const { audio, speech, translation, osc, emotion, privacy, overlay, ui } = value
 	return (
 		hasExactKeys(audio, ['deviceId', 'speakerDeviceId', 'autoStart']) &&
 		typeof audio.deviceId === 'string' &&
@@ -148,7 +155,9 @@ function isSettings(value: unknown): value is BackendSettings {
 		typeof privacy.saveAudio === 'boolean' &&
 		typeof privacy.saveTranscripts === 'boolean' &&
 		isOverlaySettings(overlay) &&
-		Object.keys(value).length === 8
+		hasExactKeys(ui, ['language']) &&
+		isLanguagePreference(ui.language) &&
+		Object.keys(value).length === 9
 	)
 }
 

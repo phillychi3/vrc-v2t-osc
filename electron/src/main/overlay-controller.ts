@@ -12,14 +12,16 @@ import { placementOf } from '../shared/overlay-presets.js'
 import type { BackendProcess } from './backend-process.js'
 import { CaptionBoard } from './overlay-captions.js'
 import { overlayHtml } from './env.js'
+import { t } from './i18n.js'
+
+function previewSample() {
+	return { text: t('vr.previewText'), original: t('vr.previewOriginal') }
+}
 
 /** Texture sizes in pixels; the panel's aspect ratio in VR follows from them. */
 const CAPTION_TEXTURE = { width: 1200, height: 420 }
 const WATCH_TEXTURE = { width: 900, height: 640 }
 const PAINT_TIMEOUT_MS = 2_000
-const LABELS = { translating: '翻譯中…', empty: '等待語音…' }
-const CALIBRATION_TITLE = '像看手錶一樣抬起手臂，看著要戴手錶的位置'
-const CALIBRATION_START_HINT = '保持不動約 2 秒即完成校準'
 
 function isWatch(overlay: OverlaySettings): boolean {
 	return overlay.watchMode && overlay.anchor !== 'head'
@@ -89,7 +91,7 @@ export class OverlayController {
 					JSON.stringify(previous.basis) !== JSON.stringify(overlay.basis) ||
 					previous.opacity !== overlay.opacity)
 			)
-				this.board.preview()
+				this.board.preview(previewSample())
 			// The watch face and the caption strip use differently sized textures.
 			if (this.window && this.windowIsWatch !== isWatch(overlay)) this.destroyWindow()
 			this.scheduleRender()
@@ -136,14 +138,14 @@ export class OverlayController {
 	 */
 	async calibrate(): Promise<void> {
 		const overlay = this.settings?.overlay
-		if (this.disposed || !overlay?.enabled) throw new Error('請先啟用 VR 字幕')
-		if (overlay.anchor === 'head') throw new Error('請先把字幕放在手上')
-		if (this.status !== 'connected') throw new Error('尚未連線 SteamVR')
+		if (this.disposed || !overlay?.enabled) throw new Error(t('error.overlayDisabled'))
+		if (overlay.anchor === 'head') throw new Error(t('error.overlayOnHead'))
+		if (this.status !== 'connected') throw new Error(t('error.overlayNotConnected'))
 		this.calibrating = true
 		try {
 			// Let an in-flight caption frame finish before reusing the renderer.
 			while (this.rendering) await new Promise((resolve) => setTimeout(resolve, 20))
-			const path = await this.writeCalibrationPrompt(CALIBRATION_START_HINT)
+			const path = await this.writeCalibrationPrompt(t('vr.calibrateStart'))
 			await this.backend.request('overlay.calibrate', { path })
 		} catch (error) {
 			this.calibrating = false
@@ -181,7 +183,7 @@ export class OverlayController {
 		const prompt = { id: 'calibration', source: 'microphone', pending: false }
 		const image = await this.paint(
 			window,
-			[{ ...prompt, primary: CALIBRATION_TITLE, secondary: hint }],
+			[{ ...prompt, primary: t('vr.calibrateTitle'), secondary: hint }],
 			false
 		)
 		await mkdir(this.directory, { recursive: true })
@@ -195,7 +197,7 @@ export class OverlayController {
 	/** Shows a sample caption so the panel can be positioned without speaking. */
 	preview(): void {
 		if (this.disposed || !this.settings?.overlay.enabled) return
-		this.board.preview()
+		this.board.preview(previewSample())
 		this.scheduleRender()
 	}
 
@@ -266,8 +268,9 @@ export class OverlayController {
 	private async paint(window: BrowserWindow, lines: unknown, watch: boolean): Promise<NativeImage> {
 		const contents = window.webContents
 		const options = { watch }
+		const labels = { translating: t('transcript.translating'), empty: t('vr.waiting') }
 		await contents.executeJavaScript(
-			`window.renderCaptions(${JSON.stringify(lines)}, ${JSON.stringify(LABELS)}, ${JSON.stringify(options)})`
+			`window.renderCaptions(${JSON.stringify(lines)}, ${JSON.stringify(labels)}, ${JSON.stringify(options)})`
 		)
 		return new Promise((resolve, reject) => {
 			const timer = setTimeout(() => {

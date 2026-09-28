@@ -75,14 +75,17 @@ export class CaptionBoard {
 		return false
 	}
 
-	/** Shows (or refreshes) a sample caption for adjusting the panel. */
-	preview(now = Date.now()): void {
+	/**
+	 * Shows (or refreshes) a sample caption for adjusting the panel: `text` in
+	 * the wearer's language over an `original` line, like a translated caption.
+	 */
+	preview(sample: { text: string; original: string }, now = Date.now()): void {
 		this.captions = this.captions.filter((caption) => caption.id !== PREVIEW_ID)
 		this.captions.push({
 			id: PREVIEW_ID,
 			source: 'speaker',
-			original: 'This is a test caption for adjusting position and size',
-			translated: '這是測試字幕，用來調整位置與大小',
+			original: sample.original,
+			translated: sample.text,
 			pending: false,
 			updatedAt: now,
 			preview: true

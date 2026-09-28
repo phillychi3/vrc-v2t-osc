@@ -3,6 +3,7 @@ import type { AppInfo, Platform, TranslationRequest } from '../shared/ipc.js'
 import { IpcChannel } from '../shared/ipc.js'
 import { isDev, devServerUrl } from './env.js'
 import { getMainWindow } from './window.js'
+import { t } from './i18n.js'
 import { isTrustedRendererUrl } from './security-policy.js'
 import type { BackendProcess } from './backend-process.js'
 import type { SettingsStore } from './settings-store.js'
@@ -65,9 +66,9 @@ export function registerIpcHandlers(
 		backend.request('system.getState', {}, MODEL_WARMUP_REQUEST_TIMEOUT_MS)
 	)
 	handle(IpcChannel.BackendRestart, async () => {
-		if (!canRestart()) throw new Error('應用程式正在關閉')
+		if (!canRestart()) throw new Error(t('error.appClosing'))
 		const settings = await settingsStore.load()
-		if (!canRestart()) throw new Error('應用程式正在關閉')
+		if (!canRestart()) throw new Error(t('error.appClosing'))
 		return backend.restart(settings, app.getPath('userData'))
 	})
 	handle(IpcChannel.BackendListAudioDevices, () =>

@@ -9,6 +9,10 @@ import type {
 	BackendSettings,
 	BackendState
 } from '../shared/ipc.js'
+import type { MessageKey, MessageParams } from '../shared/i18n.js'
+
+/** Localizes user-facing errors; injected so this module has no catalog import. */
+export type Translator = (key: MessageKey, params?: MessageParams) => string
 
 const PROTOCOL_VERSION = 1
 const MAX_LINE_BYTES = 1024 * 1024
@@ -57,10 +61,17 @@ export class BackendProcess extends EventEmitter<BackendProcessEvents> {
 	private restartTask: Promise<BackendState> | null = null
 	private shutdownRequested = false
 	private protocolFailed = false
+	private readonly t: Translator
+	private readonly systemLanguages: () => readonly string[]
 
-	constructor(command: BackendCommand) {
+	constructor(
+		command: BackendCommand,
+		options: { translate?: Translator; systemLanguages?: () => readonly string[] } = {}
+	) {
 		super()
 		this.command = command
+		this.t = options.translate ?? ((key) => key)
+		this.systemLanguages = options.systemLanguages ?? (() => [])
 	}
 
 	async start(
@@ -68,8 +79,8 @@ export class BackendProcess extends EventEmitter<BackendProcessEvents> {
 		dataPath: string,
 		suppressAutoStart = false
 	): Promise<BackendState> {
-		if (this.shutdownRequested) throw new BackendError('應用程式正在關閉', 'SHUTTING_DOWN')
-		if (this.child) throw new BackendError('後端已經啟動', 'ALREADY_STARTED')
+		if (this.shutdownRequested) throw new BackendError(this.t('error.appClosing'), 'SHUTTING_DOWN')
+		if (this.child) throw new BackendError(this.t('error.backendAlreadyStarted'), 'ALREADY_STARTED')
 		const { command, args, cwd } = this.command
 		const child = spawn(command, args, {
 			cwd,
@@ -92,13 +103,19 @@ export class BackendProcess extends EventEmitter<BackendProcessEvents> {
 		child.once('exit', (code, signal) => {
 			const suffix = signal ? `signal ${signal}` : `code ${code ?? 'unknown'}`
 			if (this.child === child)
-				this.handleTermination(new BackendError(`後端已結束（${suffix}）`, 'BACKEND_EXITED', true))
+				this.handleTermination(
+					new BackendError(
+						this.t('error.backendExited', { reason: suffix }),
+						'BACKEND_EXITED',
+						true
+					)
+				)
 		})
 
 		try {
 			return await this.request(
 				'system.initialize',
-				{ settings, dataPath, suppressAutoStart },
+				{ settings, dataPath, suppressAutoStart, systemLanguages: [...this.systemLanguages()] },
 				INITIALIZATION_TIMEOUT_MS
 			)
 		} catch (error) {
@@ -131,7 +148,9 @@ export class BackendProcess extends EventEmitter<BackendProcessEvents> {
 	): Promise<BackendRequestMap[M]['result']> {
 		const child = this.child
 		if (!child || child.stdin.destroyed || (this.stopping && method !== 'system.shutdown'))
-			return Promise.reject(new BackendError('後端未執行', 'BACKEND_UNAVAILABLE', true))
+			return Promise.reject(
+				new BackendError(this.t('error.backendNotRunning'), 'BACKEND_UNAVAILABLE', true)
+			)
 
 		const id = `main-${++this.nextRequestId}`
 		// `pending` is heterogeneous — each entry resolves a different result
@@ -139,7 +158,9 @@ export class BackendProcess extends EventEmitter<BackendProcessEvents> {
 		return new Promise<unknown>((resolve, reject) => {
 			const timer = setTimeout(() => {
 				this.pending.delete(id)
-				reject(new BackendError(`後端要求逾時: ${method}`, 'REQUEST_TIMEOUT', true))
+				reject(
+					new BackendError(this.t('error.backendTimeout', { method }), 'REQUEST_TIMEOUT', true)
+				)
 			}, timeoutMs)
 			this.pending.set(id, { resolve, reject, timer })
 			const line =
@@ -184,7 +205,7 @@ export class BackendProcess extends EventEmitter<BackendProcessEvents> {
 				this.killTree(child)
 				await new Promise<void>((resolve, reject) => {
 					const killTimer = setTimeout(
-						() => reject(new BackendError('無法終止後端', 'STOP_FAILED')),
+						() => reject(new BackendError(this.t('error.backendStopFailed'), 'STOP_FAILED')),
 						2000
 					)
 					void exited.then(() => {
@@ -201,7 +222,7 @@ export class BackendProcess extends EventEmitter<BackendProcessEvents> {
 	private consumeStdout(chunk: Buffer): void {
 		this.stdoutBuffer = Buffer.concat([this.stdoutBuffer, chunk])
 		if (this.stdoutBuffer.length > MAX_LINE_BYTES && !this.stdoutBuffer.includes(0x0a)) {
-			this.failProtocol('後端訊息超過 1 MiB')
+			this.failProtocol('message exceeds 1 MiB')
 			return
 		}
 
@@ -210,7 +231,7 @@ export class BackendProcess extends EventEmitter<BackendProcessEvents> {
 			const raw = this.stdoutBuffer.subarray(0, newline)
 			this.stdoutBuffer = this.stdoutBuffer.subarray(newline + 1)
 			if (raw.length > MAX_LINE_BYTES) {
-				this.failProtocol('後端訊息超過 1 MiB')
+				this.failProtocol('message exceeds 1 MiB')
 				return
 			}
 			const line = this.decoder.write(raw).replace(/\r$/, '')
@@ -224,15 +245,15 @@ export class BackendProcess extends EventEmitter<BackendProcessEvents> {
 		try {
 			message = JSON.parse(line) as BackendResponse | BackendEvent
 		} catch {
-			this.failProtocol('後端輸出了無效 JSON')
+			this.failProtocol('invalid JSON')
 			return
 		}
 		if (!message || typeof message !== 'object' || Array.isArray(message)) {
-			this.failProtocol('後端訊息必須是物件')
+			this.failProtocol('message must be an object')
 			return
 		}
 		if (message.v !== PROTOCOL_VERSION) {
-			this.failProtocol('後端協定版本不相容')
+			this.failProtocol('incompatible protocol version')
 			return
 		}
 		if (message.type === 'event') {
@@ -245,14 +266,14 @@ export class BackendProcess extends EventEmitter<BackendProcessEvents> {
 				!message.event ||
 				!('data' in message)
 			) {
-				this.failProtocol('後端事件格式不正確')
+				this.failProtocol('malformed event')
 				return
 			}
 			this.emit('event', message)
 			return
 		}
 		if (message.type !== 'response' || typeof message.id !== 'string') {
-			this.failProtocol('後端輸出了未知訊息')
+			this.failProtocol('unknown message')
 			return
 		}
 		if (
@@ -264,7 +285,7 @@ export class BackendProcess extends EventEmitter<BackendProcessEvents> {
 					typeof message.error.message !== 'string' ||
 					typeof message.error.retryable !== 'boolean'))
 		) {
-			this.failProtocol('後端回應格式不正確')
+			this.failProtocol('malformed response')
 			return
 		}
 		const pending = this.pending.get(message.id)
@@ -278,10 +299,13 @@ export class BackendProcess extends EventEmitter<BackendProcessEvents> {
 			)
 	}
 
-	private failProtocol(message: string): void {
+	private failProtocol(detail: string): void {
 		if (this.protocolFailed) return
 		this.protocolFailed = true
-		const error = new BackendError(message, 'PROTOCOL_ERROR')
+		const error = new BackendError(
+			`${this.t('error.backendProtocol')} (${detail})`,
+			'PROTOCOL_ERROR'
+		)
 		this.emit('error', error)
 		this.stopping = true
 		if (this.child) this.killTree(this.child)
