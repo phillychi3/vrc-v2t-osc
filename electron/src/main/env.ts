@@ -18,6 +18,10 @@ export const preloadScript = join(__dirname, 'preload.cjs')
 export const splashHtml = isDev
 	? join(appRoot, 'electron', 'static', 'splash.html')
 	: join(rendererDist, 'splash.html')
+/** Offscreen page that lays out the SteamVR caption texture. */
+export const overlayHtml = isDev
+	? join(appRoot, 'electron', 'static', 'overlay.html')
+	: join(rendererDist, 'overlay.html')
 
 /** Matches `server.host` / `server.port` in `vite.config.ts`. */
 export const devServerUrl = process.env.VITE_DEV_SERVER_URL ?? 'http://127.0.0.1:5173'

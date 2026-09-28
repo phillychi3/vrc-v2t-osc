@@ -38,7 +38,11 @@ const handle: typeof ipcMain.handle = (channel, listener) => {
 export function registerIpcHandlers(
 	backend: BackendProcess,
 	settingsStore: SettingsStore,
-	canRestart: () => boolean = () => true
+	canRestart: () => boolean = () => true,
+	overlay: { preview: () => void; calibrate: () => Promise<void> } = {
+		preview: () => undefined,
+		calibrate: async () => undefined
+	}
 ): void {
 	handle(IpcChannel.AppInfo, (): AppInfo => {
 		if (isDev) console.info(`Renderer IPC connected: ${IpcChannel.AppInfo}`)
@@ -102,6 +106,9 @@ export function registerIpcHandlers(
 		await settingsStore.save(result.settings)
 		return result
 	})
+
+	handle(IpcChannel.OverlayPreview, () => overlay.preview())
+	handle(IpcChannel.OverlayCalibrate, () => overlay.calibrate())
 
 	ipcMain.on(IpcChannel.WindowMinimize, (event) => windowOf(event)?.minimize())
 

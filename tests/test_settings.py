@@ -17,6 +17,7 @@ class SettingsTests(unittest.TestCase):
             "venddair/nllb-200-distilled-600M-onnx",
         )
         self.assertEqual(settings["translation"]["deeplPlan"], "free")
+        self.assertFalse(settings["emotion"]["enabled"])
 
     def test_patch_is_immutable(self) -> None:
         original = default_settings()
@@ -49,6 +50,25 @@ class SettingsTests(unittest.TestCase):
         )
         self.assertTrue(changed["translation"]["enabled"])
         self.assertEqual(changed["translation"]["apiKey"], "secret")
+
+    def test_overlay_defaults_are_disabled_and_show_speaker(self) -> None:
+        overlay = default_settings()["overlay"]
+        self.assertFalse(overlay["enabled"])
+        self.assertEqual(overlay["anchor"], "head")
+        self.assertTrue(overlay["showSpeaker"])
+
+    def test_rejects_invalid_overlay_values(self) -> None:
+        for patch, message in (
+            ({"anchor": "hip"}, "overlay.anchor"),
+            ({"scale": 3}, "overlay.scale"),
+            ({"opacity": True}, "overlay.opacity"),
+            ({"offsetZ": float("nan")}, "overlay.offsetZ"),
+            ({"pitch": 181}, "overlay.pitch"),
+            ({"holdSeconds": 1.5}, "overlay.holdSeconds"),
+        ):
+            with self.subTest(patch=patch):
+                with self.assertRaisesRegex(SettingsError, message):
+                    apply_patch(default_settings(), {"overlay": patch})
 
 
 if __name__ == "__main__":

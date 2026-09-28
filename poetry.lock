@@ -610,6 +610,28 @@ protobuf = "*"
 sympy = "*"
 
 [[package]]
+name = "openvr"
+version = "2.12.1401"
+description = "Unofficial python bindings for Valve OpenVR SDK"
+optional = false
+python-versions = ">=3.9"
+groups = ["main"]
+files = [
+    {file = "openvr-2.12.1401-py3-none-any.whl", hash = "sha256:ef761cef3162843a8025a7812d5e244fd94ab3a992ca8f5ef0d1b0188ad56cb3"},
+    {file = "openvr-2.12.1401.tar.gz", hash = "sha256:245afacb008b66f10bc38eab1f4806cf634a70400c4a0baf349295f617d0f6df"},
+]
+
+[package.extras]
+generate = ["clang"]
+glfw = ["PyOpenGL", "glfw", "numpy"]
+opengl = ["PyOpenGL", "numpy"]
+pyqt5 = ["PyOpenGL", "PyQt5", "jinja2", "numpy"]
+pyside2 = ["PyOpenGL", "PySide2", "numpy"]
+pyside6 = ["PyOpenGL", "PySide6", "numpy"]
+sdl2 = ["PyOpenGL", "PySDL2", "numpy"]
+wx = ["PyOpenGL", "numpy", "wxPython"]
+
+[[package]]
 name = "packaging"
 version = "25.0"
 description = "Core utilities for Python packages"
@@ -1288,4 +1310,4 @@ zstd = ["zstandard (>=0.18.0)"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<3.14"
-content-hash = "e8ddd0d5167d2bad986d467f8fed1dd810300c827c7bcc53433942547b64834b"
+content-hash = "c4a00923b376b14974391f97fb86da7ea4a0e8f7383532e1bf21a3dfbf464c59"

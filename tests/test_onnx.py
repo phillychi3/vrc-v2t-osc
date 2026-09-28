@@ -5,7 +5,12 @@ from unittest.mock import Mock, patch
 import numpy as np
 
 from backend.emotion import EmotionService
-from backend.nllb import NllbTranslator, MODEL_FILES
+from backend.nllb import (
+    MODEL_FILES,
+    NllbTranslator,
+    max_new_tokens,
+    repeated_ngram_tokens,
+)
 from backend.settings import default_settings, validate_settings
 
 
@@ -52,6 +57,44 @@ class OnnxInferenceTests(unittest.TestCase):
         self.assertEqual(prefixes, [[2, 256168], [2, 256168, 5]])
         self.assertEqual(tokenizer.src_lang, "eng_Latn")
         tokenizer.decode.assert_called_once_with([5], skip_special_tokens=True)
+
+    def test_nllb_blocks_repeated_trigrams(self):
+        self.assertEqual(repeated_ngram_tokens([5, 6]), set())
+        self.assertEqual(repeated_ngram_tokens([5, 6, 7, 5, 6]), {7})
+        self.assertEqual(repeated_ngram_tokens([5, 6, 7, 8]), set())
+        self.assertEqual(max_new_tokens(4), 28)
+        self.assertEqual(max_new_tokens(500), 256)
+
+    def test_nllb_returns_partial_text_instead_of_failing_at_length_bound(self):
+        engine = NllbTranslator()
+        tokenizer = Mock()
+        tokenizer.unk_token_id, tokenizer.bos_token_id = 3, 0
+        tokenizer.pad_token_id, tokenizer.eos_token_id = 1, 2
+        tokenizer.convert_tokens_to_ids.side_effect = [256168, 256047]
+        tokenizer.return_value = {
+            "input_ids": np.array([[7, 2]]),
+            "attention_mask": np.array([[1, 1]]),
+        }
+        tokenizer.decode.return_value = "哈哈"
+        engine._tokenizer = tokenizer
+        engine._encoder, engine._decoder = Mock(), Mock()
+        engine._encoder.run.return_value = [np.zeros((1, 2, 4), dtype=np.float32)]
+        calls = []
+
+        def decode(_outputs, feeds):
+            calls.append(1)
+            # Never emits EOS and always prefers the same few tokens.
+            scores = np.zeros((1, 1, 400), dtype=np.float32)
+            scores[0, -1, 5:] = np.linspace(10, 1, 395)
+            scores[0, -1, 2] = -100
+            return [scores]
+
+        engine._decoder.run.side_effect = decode
+        self.assertEqual(engine.translate("ha", "eng_Latn", "zho_Hant"), "哈哈")
+        self.assertEqual(len(calls), max_new_tokens(2))
+        generated = tokenizer.decode.call_args.args[0]
+        trigrams = [tuple(generated[i : i + 3]) for i in range(len(generated) - 2)]
+        self.assertEqual(len(trigrams), len(set(trigrams)))
 
     def test_emotion_uses_numpy_logits_and_only_declared_inputs(self):
         service = EmotionService(

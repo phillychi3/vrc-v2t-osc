@@ -13,6 +13,7 @@
 			"$shared": ["./electron/src/shared"],
 			"$shared/*": ["./electron/src/shared/*"]
 		},
+		"allowImportingTsExtensions": true,
 		"allowJs": true,
 		"esModuleInterop": true,
 		"forceConsistentCasingInFileNames": true,

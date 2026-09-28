@@ -26,7 +26,24 @@ const settings = {
 	},
 	osc: { enabled: true, host: '127.0.0.1', port: 9000 },
 	emotion: { enabled: false, parameter: '/avatar/parameters/v2t_sync_emo' },
-	privacy: { saveAudio: false, saveTranscripts: false }
+	privacy: { saveAudio: false, saveTranscripts: false },
+	overlay: {
+		enabled: false,
+		anchor: 'head',
+		scale: 1,
+		offsetX: 0,
+		offsetY: -0.35,
+		offsetZ: -1.5,
+		pitch: 0,
+		yaw: 0,
+		roll: 0,
+		opacity: 0.9,
+		holdSeconds: 8,
+		showMicrophone: false,
+		showSpeaker: true,
+		watchMode: false,
+		basis: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]
+	}
 }
 const state = {
 	sessionId: 'ui-1',
@@ -36,6 +53,7 @@ const state = {
 	recordingSource: null,
 	recordings: { microphone: 'idle', speaker: 'idle' },
 	models: { speech: { status: 'loading', device: 'cpu' } },
+	overlay: { status: 'disabled', message: null },
 	settings
 }
 const sent = []

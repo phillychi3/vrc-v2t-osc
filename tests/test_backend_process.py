@@ -70,13 +70,15 @@ class BackendProcessTests(unittest.TestCase):
         self.assertTrue(response["ok"])
 
     def test_ndjson_initialize_state_and_shutdown(self) -> None:
+        settings = default_settings()
+        settings["emotion"]["enabled"] = True
         requests = [
             {
                 "v": 1,
                 "type": "request",
                 "id": "init",
                 "method": "system.initialize",
-                "params": {"settings": default_settings(), "dataPath": "C:/data"},
+                "params": {"settings": settings, "dataPath": "C:/data"},
             },
             {
                 "v": 1,

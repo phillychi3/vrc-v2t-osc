@@ -47,11 +47,16 @@ async function boot(response = 1, sourceText = source) {
 			}
 		},
 		registerIpcHandlers: () => undefined,
+		OverlayController: class {
+			handleEvent() {}
+			reset() {}
+			dispose() {}
+		},
 		applySecurityPolicy: () => undefined,
 		createSplashWindow: async () => undefined,
 		createMainWindow: async () => {
 			calls.main++
-			return { show: () => calls.shown++ }
+			return { show: () => calls.shown++, once: () => undefined }
 		},
 		closeSplashWindow: () => calls.splashClosed++,
 		getMainWindow: () => null,

@@ -1,6 +1,8 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { BackendSettings } from '../shared/ipc.js'
+import type { BackendSettings, OverlaySettings } from '../shared/ipc.js'
+// A .ts specifier so the Node test runner can load this module directly.
+import { IDENTITY_BASIS, OVERLAY_PRESETS } from '../shared/overlay-presets.ts'
 
 const DEFAULT_SETTINGS: BackendSettings = {
 	schemaVersion: 1,
@@ -18,8 +20,17 @@ const DEFAULT_SETTINGS: BackendSettings = {
 		deeplApiKey: ''
 	},
 	osc: { enabled: true, host: '127.0.0.1', port: 9000 },
-	emotion: { enabled: true, parameter: '/avatar/parameters/v2t_sync_emo' },
-	privacy: { saveAudio: false, saveTranscripts: false }
+	emotion: { enabled: false, parameter: '/avatar/parameters/v2t_sync_emo' },
+	privacy: { saveAudio: false, saveTranscripts: false },
+	overlay: {
+		enabled: false,
+		...OVERLAY_PRESETS.head,
+		opacity: 0.9,
+		holdSeconds: 8,
+		showMicrophone: false,
+		showSpeaker: true,
+		basis: [...IDENTITY_BASIS]
+	}
 }
 
 export class SettingsStore {
@@ -32,7 +43,7 @@ export class SettingsStore {
 
 	async load(): Promise<BackendSettings> {
 		try {
-			const settings = JSON.parse(await readFile(this.path, 'utf8'))
+			const settings = migrate(JSON.parse(await readFile(this.path, 'utf8')))
 			if (!isSettings(settings)) throw new Error('設定格式或版本不相容')
 			return settings
 		} catch (error) {
@@ -55,9 +66,34 @@ export class SettingsStore {
 	}
 }
 
+/** Fills sections added after a settings file was written. */
+function migrate(value: unknown): unknown {
+	if (!isRecord(value) || value.schemaVersion !== 1) return value
+	if (!('overlay' in value)) return { ...value, overlay: structuredClone(DEFAULT_SETTINGS.overlay) }
+	const overlay = value.overlay
+	if (!isRecord(overlay)) return value
+	if (!('distance' in overlay))
+		return {
+			...value,
+			overlay: { watchMode: false, basis: [...IDENTITY_BASIS], ...overlay }
+		}
+	// Early overlay builds stored only a head distance and height.
+	const { distance, verticalOffset, ...rest } = overlay
+	const placement =
+		overlay.anchor === 'leftHand' || overlay.anchor === 'rightHand'
+			? { ...OVERLAY_PRESETS[overlay.anchor], scale: overlay.scale }
+			: {
+					...OVERLAY_PRESETS.head,
+					scale: overlay.scale,
+					offsetY: verticalOffset,
+					offsetZ: typeof distance === 'number' ? -distance : distance
+				}
+	return { ...value, overlay: { ...rest, ...placement, basis: [...IDENTITY_BASIS] } }
+}
+
 function isSettings(value: unknown): value is BackendSettings {
 	if (!isRecord(value) || value.schemaVersion !== 1) return false
-	const { audio, speech, translation, osc, emotion, privacy } = value
+	const { audio, speech, translation, osc, emotion, privacy, overlay } = value
 	return (
 		hasExactKeys(audio, ['deviceId', 'speakerDeviceId', 'autoStart']) &&
 		typeof audio.deviceId === 'string' &&
@@ -111,8 +147,37 @@ function isSettings(value: unknown): value is BackendSettings {
 		hasExactKeys(privacy, ['saveAudio', 'saveTranscripts']) &&
 		typeof privacy.saveAudio === 'boolean' &&
 		typeof privacy.saveTranscripts === 'boolean' &&
-		Object.keys(value).length === 7
+		isOverlaySettings(overlay) &&
+		Object.keys(value).length === 8
 	)
+}
+
+function isOverlaySettings(value: unknown): value is OverlaySettings {
+	return (
+		hasExactKeys(value, Object.keys(DEFAULT_SETTINGS.overlay)) &&
+		typeof value.enabled === 'boolean' &&
+		(value.anchor === 'head' || value.anchor === 'leftHand' || value.anchor === 'rightHand') &&
+		inRange(value.scale, 0.2, 2) &&
+		inRange(value.offsetX, -1, 1) &&
+		inRange(value.offsetY, -1, 1) &&
+		inRange(value.offsetZ, -5, 1) &&
+		inRange(value.pitch, -180, 180) &&
+		inRange(value.yaw, -180, 180) &&
+		inRange(value.roll, -180, 180) &&
+		inRange(value.opacity, 0.2, 1) &&
+		Number.isInteger(value.holdSeconds) &&
+		inRange(value.holdSeconds, 2, 60) &&
+		typeof value.showMicrophone === 'boolean' &&
+		typeof value.showSpeaker === 'boolean' &&
+		typeof value.watchMode === 'boolean' &&
+		Array.isArray(value.basis) &&
+		value.basis.length === 12 &&
+		value.basis.every((entry) => inRange(entry, -10, 10))
+	)
+}
+
+function inRange(value: unknown, minimum: number, maximum: number): value is number {
+	return typeof value === 'number' && value >= minimum && value <= maximum
 }
 
 function hasExactKeys(value: unknown, keys: string[]): value is Record<string, unknown> {

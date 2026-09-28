@@ -16,6 +16,7 @@ test('uses defaults when settings.json does not exist', async (context) => {
 	assert.equal(settings.translation.provider, 'onnx')
 	assert.equal(settings.audio.speakerDeviceId, 'speaker:default')
 	assert.equal(settings.translation.deeplPlan, 'free')
+	assert.equal(settings.emotion.enabled, false)
 })
 
 test('saves validated settings and can replace an existing file', async (context) => {
@@ -59,4 +60,98 @@ test('unsupported persisted models reset the whole settings document', async (co
 	assert.equal(loaded.translation.provider, 'onnx')
 	assert.equal(loaded.translation.model, 'venddair/nllb-200-distilled-600M-onnx')
 	assert.equal(loaded.osc.port, 9000)
+})
+
+test('adds default VR overlay settings to files written before the overlay existed', async (context) => {
+	const directory = await temporaryDirectory(context)
+	const store = new SettingsStore(directory)
+	const settings = await store.load()
+	settings.osc.port = 9011
+	delete settings.overlay
+	await writeFile(store.path, JSON.stringify(settings), 'utf8')
+
+	const loaded = await store.load()
+	assert.equal(loaded.osc.port, 9011)
+	assert.equal(loaded.overlay.enabled, false)
+	assert.equal(loaded.overlay.anchor, 'head')
+})
+
+test('invalid VR overlay settings reset the settings document', async (context) => {
+	const directory = await temporaryDirectory(context)
+	const store = new SettingsStore(directory)
+	const settings = await store.load()
+	settings.osc.port = 9012
+	settings.overlay.scale = 9
+	await store.save(settings)
+
+	assert.equal((await store.load()).osc.port, 9000)
+})
+
+test('converts early head-distance overlay settings to offsets', async (context) => {
+	const directory = await temporaryDirectory(context)
+	const store = new SettingsStore(directory)
+	const settings = await store.load()
+	settings.osc.port = 9013
+	settings.overlay = {
+		enabled: true,
+		anchor: 'head',
+		scale: 1.2,
+		distance: 2,
+		verticalOffset: -0.2,
+		opacity: 0.8,
+		holdSeconds: 10,
+		showMicrophone: true,
+		showSpeaker: true
+	}
+	await writeFile(store.path, JSON.stringify(settings), 'utf8')
+
+	const loaded = await store.load()
+	assert.equal(loaded.osc.port, 9013)
+	assert.deepEqual(loaded.overlay, {
+		enabled: true,
+		anchor: 'head',
+		scale: 1.2,
+		offsetX: 0,
+		offsetY: -0.2,
+		offsetZ: -2,
+		pitch: 0,
+		yaw: 0,
+		roll: 0,
+		opacity: 0.8,
+		holdSeconds: 10,
+		showMicrophone: true,
+		showSpeaker: true,
+		watchMode: false,
+		basis: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]
+	})
+})
+
+test('adds watch mode to overlay settings written before it existed', async (context) => {
+	const directory = await temporaryDirectory(context)
+	const store = new SettingsStore(directory)
+	const settings = await store.load()
+	settings.osc.port = 9014
+	delete settings.overlay.watchMode
+	delete settings.overlay.basis
+	await writeFile(store.path, JSON.stringify(settings), 'utf8')
+
+	const loaded = await store.load()
+	assert.equal(loaded.osc.port, 9014)
+	assert.equal(loaded.overlay.watchMode, false)
+	assert.deepEqual(loaded.overlay.basis, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0])
+})
+
+test('converts early hand overlay settings to the matching hand preset', async (context) => {
+	const directory = await temporaryDirectory(context)
+	const store = new SettingsStore(directory)
+	const settings = await store.load()
+	const { offsetX, offsetY, offsetZ, pitch, yaw, roll, ...rest } = settings.overlay
+	void [offsetX, offsetY, offsetZ, pitch, yaw, roll]
+	settings.overlay = { ...rest, anchor: 'leftHand', distance: 1.5, verticalOffset: -0.35 }
+	await writeFile(store.path, JSON.stringify(settings), 'utf8')
+
+	const loaded = await store.load()
+	assert.equal(loaded.overlay.anchor, 'leftHand')
+	assert.equal(loaded.overlay.offsetY, 0.12)
+	assert.equal(loaded.overlay.pitch, -20)
 })

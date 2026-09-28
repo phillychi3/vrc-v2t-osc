@@ -6,6 +6,7 @@ import { BackendProcess } from './backend-process.js'
 import { IpcChannel } from '../shared/ipc.js'
 import { SettingsStore } from './settings-store.js'
 import { resolveBackendCommand } from './backend-command.js'
+import { OverlayController } from './overlay-controller.js'
 
 const backend = new BackendProcess(resolveBackendCommand())
 let quitting = false
@@ -31,18 +32,26 @@ async function bootstrap(): Promise<void> {
 
 	applySecurityPolicy()
 	const splash = await createSplashWindow()
+	const settingsStore = new SettingsStore(app.getPath('userData'))
+	const overlay = new OverlayController(backend, app.getPath('userData'), async (patch) => {
+		const result = await backend.request('settings.update', { patch }, 120_000)
+		await settingsStore.save(result.settings)
+	})
+	app.once('before-quit', () => overlay.dispose())
 	backend.on('event', (event) => {
-		for (const window of BrowserWindow.getAllWindows())
-			window.webContents.send(IpcChannel.BackendEvent, event)
+		overlay.handleEvent(event)
+		getMainWindow()?.webContents.send(IpcChannel.BackendEvent, event)
 	})
 	backend.on('error', (error) => {
 		console.error(error)
-		for (const window of BrowserWindow.getAllWindows())
-			window.webContents.send(IpcChannel.BackendFailure, error.message)
+		overlay.reset()
+		getMainWindow()?.webContents.send(IpcChannel.BackendFailure, error.message)
 	})
-	const settingsStore = new SettingsStore(app.getPath('userData'))
 	const settings = await settingsStore.load()
-	registerIpcHandlers(backend, settingsStore, () => !quitting)
+	registerIpcHandlers(backend, settingsStore, () => !quitting, {
+		preview: () => overlay.preview(),
+		calibrate: () => overlay.calibrate()
+	})
 	try {
 		while (!quitting) {
 			try {
@@ -69,6 +78,8 @@ async function bootstrap(): Promise<void> {
 		}
 		if (quitting) return
 		const window = await createMainWindow(false)
+		// The offscreen caption window must not keep the app alive.
+		window.once('closed', () => overlay.dispose())
 		window.show()
 		closeSplashWindow()
 	} catch (error) {

@@ -156,6 +156,26 @@ class FakeTranslation:
         self.closed = True
 
 
+class FakeOverlay:
+    def __init__(self, **kwargs: object) -> None:
+        self.settings = kwargs["settings"]
+        self.on_status = kwargs["on_status"]
+        self.images: list[str | None] = []
+        self.closed = False
+
+    def configure(self, settings: dict[str, object]) -> None:
+        self.settings = settings
+
+    def show_image(self, path: str) -> None:
+        self.images.append(path)
+
+    def hide(self) -> None:
+        self.images.append(None)
+
+    def close(self) -> None:
+        self.closed = True
+
+
 class ServiceTests(unittest.TestCase):
     def setUp(self) -> None:
         self.events: list[dict[str, object]] = []
@@ -179,6 +199,62 @@ class ServiceTests(unittest.TestCase):
                 {"settings": default_settings(), "dataPath": "C:/data"},
             )
         )
+
+    def test_overlay_images_are_limited_to_the_overlay_directory(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        overlays: list[FakeOverlay] = []
+
+        def make_overlay(**kwargs: object) -> FakeOverlay:
+            overlays.append(FakeOverlay(**kwargs))
+            return overlays[-1]
+
+        events: list[dict[str, object]] = []
+        service = BackendService(
+            lambda _name, payload: events.append(payload),
+            osc_factory=FakeOsc,  # type: ignore[arg-type]
+            overlay_factory=make_overlay,
+        )
+        self.addCleanup(service.close)
+        with tempfile.TemporaryDirectory() as data_path:
+            (Path(data_path) / "overlay").mkdir()
+            image = Path(data_path) / "overlay" / "caption-0.png"
+            image.write_bytes(b"png")
+            outside = Path(data_path) / "caption.png"
+            outside.write_bytes(b"png")
+            service.handle(
+                Request(
+                    "init",
+                    "system.initialize",
+                    {"settings": default_settings(), "dataPath": data_path},
+                )
+            )
+            service.handle(Request("1", "overlay.show", {"path": str(image)}))
+            self.assertEqual(overlays[0].images, [str(image.resolve())])
+            for path in (str(outside), str(Path(data_path) / "overlay" / "x.png")):
+                with self.assertRaises(ServiceError) as caught:
+                    service.handle(Request("2", "overlay.show", {"path": path}))
+                self.assertEqual(caught.exception.code, "INVALID_PARAMS")
+            service.handle(Request("3", "overlay.hide", {}))
+            self.assertEqual(overlays[0].images[-1], None)
+
+        overlays[0].on_status("connected", None)  # type: ignore[operator]
+        state = service.handle(Request("4", "system.getState", {}))
+        self.assertEqual(state["overlay"], {"status": "connected", "message": None})
+        self.assertEqual(events[-1]["event"], "overlay.status")
+
+        service.handle(
+            Request(
+                "5",
+                "settings.update",
+                {"patch": {"overlay": {"enabled": True, "anchor": "leftHand"}}},
+            )
+        )
+        self.assertEqual(overlays[0].settings["anchor"], "leftHand")  # type: ignore[index]
+        self.assertEqual(events[-1]["event"], "settings.changed")
+        service.close()
+        self.assertTrue(overlays[0].closed)
 
     def test_requires_initialization(self) -> None:
         with self.assertRaises(ServiceError) as caught:
@@ -380,11 +456,13 @@ class ServiceTests(unittest.TestCase):
             voice_factory=make_voice,  # type: ignore[arg-type]
             emotion_factory=make_emotion,  # type: ignore[arg-type]
         )
+        settings = default_settings()
+        settings["emotion"]["enabled"] = True
         service.handle(
             Request(
                 "init",
                 "system.initialize",
-                {"settings": default_settings(), "dataPath": "C:/data"},
+                {"settings": settings, "dataPath": "C:/data"},
             )
         )
 

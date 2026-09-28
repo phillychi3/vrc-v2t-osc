@@ -6,6 +6,28 @@ from backend.runtime import cpu_session
 
 MODEL_ID = "venddair/nllb-200-distilled-600M-onnx"
 MODEL_REVISION = "714bc338a10f51a2f5567ff355aab76f21de8a91"
+# Greedy decoding can fall into loops ("ha ha ha ..."). Block repeated
+# n-grams and bound the output by the input length instead of failing.
+NO_REPEAT_NGRAM = 3
+MAX_NEW_TOKENS = 256
+
+
+def max_new_tokens(source_tokens: int) -> int:
+    return min(MAX_NEW_TOKENS, source_tokens * 3 + 16)
+
+
+def repeated_ngram_tokens(generated: list[int], size: int = NO_REPEAT_NGRAM) -> set[int]:
+    """Tokens that would complete an n-gram already present in `generated`."""
+    if len(generated) < size:
+        return set()
+    prefix = tuple(generated[-(size - 1) :])
+    return {
+        generated[index + size - 1]
+        for index in range(len(generated) - size + 1)
+        if tuple(generated[index : index + size - 1]) == prefix
+    }
+
+
 MODEL_FILES = [
     "encoder_model_int8.onnx",
     "decoder_model_int8.onnx",
@@ -72,7 +94,7 @@ class NllbTranslator:
             # This export has no past-key-value inputs; decode the full prefix.
             # It expects EOS-as-BOS followed by the target language token.
             ids = [tokenizer.eos_token_id, target_id]
-            for _ in range(256):
+            for _ in range(max_new_tokens(int(mask.sum()))):
                 logits = self._decoder.run(
                     None,
                     {
@@ -87,16 +109,17 @@ class NllbTranslator:
                 # These are control tokens, never generated translation text.
                 scores[tokenizer.bos_token_id] = -np.inf
                 scores[tokenizer.pad_token_id] = -np.inf
+                for banned in repeated_ngram_tokens(ids[2:]):
+                    scores[banned] = -np.inf
                 token = int(np.argmax(scores))
                 if token == tokenizer.eos_token_id:
-                    translated = tokenizer.decode(
-                        ids[2:], skip_special_tokens=True
-                    ).strip()
-                    if not translated:
-                        raise RuntimeError("本機翻譯模型沒有回傳文字")
-                    return translated
+                    break
                 ids.append(token)
-            raise RuntimeError("翻譯超過長度限制，請縮短文字後重試")
+            # Reaching the length bound keeps the text translated so far.
+            translated = tokenizer.decode(ids[2:], skip_special_tokens=True).strip()
+            if not translated:
+                raise RuntimeError("本機翻譯模型沒有回傳文字")
+            return translated
 
     def close(self) -> None:
         with self._lock:

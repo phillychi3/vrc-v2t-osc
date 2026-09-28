@@ -39,6 +39,34 @@ def configure_native_runtime() -> None:
             os.environ["PATH"] = str(directory) + os.pathsep + os.environ.get("PATH", "")
 
 
+# cuDNN's loader aborts the whole process when a sub-library is missing, so a
+# CUDA failure cannot be caught and retried on CPU. Check these up front.
+_CUDA_LIBRARIES = (
+    "cublas64_12.dll",
+    "cublasLt64_12.dll",
+    "cudnn_ops64_9.dll",
+    "cudnn_cnn64_9.dll",
+)
+
+
+def missing_cuda_libraries() -> list[str]:
+    """CUDA DLLs that speech inference needs but cannot be loaded."""
+    if sys.platform != "win32":
+        return []
+    import ctypes
+
+    configure_native_runtime()
+    missing = []
+    for name in _CUDA_LIBRARIES:
+        try:
+            # winmode=0 uses the standard search order (including PATH), which
+            # is how CTranslate2 and cuDNN locate these libraries.
+            ctypes.WinDLL(name, winmode=0)
+        except OSError:
+            missing.append(name)
+    return missing
+
+
 def cpu_session(path: str | Path):
     import onnxruntime as ort
 

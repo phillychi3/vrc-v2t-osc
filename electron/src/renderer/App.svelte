@@ -20,6 +20,7 @@
 	const audioDevices = backend.audioDevices
 	const translationProviders = backend.translationProviders
 	const translationStatuses = backend.translationStatuses
+	const overlayCalibration = backend.overlayCalibration
 	const backendConnected = backend.connected
 
 	onMount(() => {
@@ -85,6 +86,15 @@
 				>
 					{$backendRestarting ? '重新啟動中…' : '重新啟動後端'}
 				</button>
+			{:else}
+				<button
+					type="button"
+					class="btn-ghost size-8 shrink-0 p-0 text-red-600 dark:text-red-300"
+					aria-label="關閉訊息"
+					onclick={() => backend.dismissError()}
+				>
+					<span class="i-carbon-close size-4"></span>
+				</button>
 			{/if}
 		</div>
 	{/if}
@@ -100,8 +110,12 @@
 				speechModelStatus={$backendState?.models.speech?.status ?? 'not_loaded'}
 				{refreshingDevices}
 				saving={savingSettings}
+				overlayStatus={$backendState?.overlay ?? null}
 				onRefreshDevices={refreshDevices}
 				onUpdate={updateSettings}
+				onPreviewOverlay={() => window.api?.overlay.preview() ?? Promise.resolve()}
+				onCalibrateOverlay={backend.calibrateOverlay}
+				overlayCalibration={$overlayCalibration}
 			/>
 		</main>
 	{:else}

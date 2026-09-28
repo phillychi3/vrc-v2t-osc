@@ -32,6 +32,10 @@ const api: RendererApi = {
 			return () => ipcRenderer.removeListener(IpcChannel.BackendEvent, handler)
 		}
 	},
+	overlay: {
+		preview: () => ipcRenderer.invoke(IpcChannel.OverlayPreview),
+		calibrate: () => ipcRenderer.invoke(IpcChannel.OverlayCalibrate)
+	},
 	window: {
 		minimize: () => ipcRenderer.send(IpcChannel.WindowMinimize),
 		toggleMaximize: () => ipcRenderer.send(IpcChannel.WindowToggleMaximize),

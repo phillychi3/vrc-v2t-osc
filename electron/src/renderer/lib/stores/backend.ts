@@ -2,7 +2,9 @@ import { derived, get, writable } from 'svelte/store'
 import type {
 	AudioDevice,
 	BackendEvent,
+	BackendSettings,
 	BackendSettingsPatch,
+	OverlayStatus,
 	BackendState,
 	RecordingSource,
 	RecordingState,
@@ -33,6 +35,14 @@ const transcripts = writable<Transcript[]>([])
 const audioDevices = writable<AudioDevice[]>([])
 const translationProviders = writable<TranslationProviderInfo[]>([])
 const translationStatuses = writable<Record<string, 'loading' | 'ready' | 'failed'>>({})
+export interface OverlayCalibration {
+	status: 'running' | 'done' | 'failed'
+	message: string | null
+}
+const overlayCalibration = writable<OverlayCalibration | null>(null)
+/** Errors reported by background events clear themselves after this long. */
+const TRANSIENT_ERROR_MS = 8_000
+let transientErrorTimer: ReturnType<typeof setTimeout> | null = null
 const recordingRequestPending: Record<RecordingSource, boolean> = {
 	microphone: false,
 	speaker: false
@@ -47,12 +57,26 @@ export const backend = {
 	audioDevices: { subscribe: audioDevices.subscribe },
 	translationProviders: { subscribe: translationProviders.subscribe },
 	translationStatuses: { subscribe: translationStatuses.subscribe },
+	overlayCalibration: { subscribe: overlayCalibration.subscribe },
 	connected: derived(
 		[state, failed, restarting],
 		([$state, $failed, $restarting]) => $state?.backend === 'ready' && !$failed && !$restarting
 	),
 	clearTranscripts(): void {
 		transcripts.set([])
+	},
+
+	dismissError(): void {
+		clearError()
+	},
+
+	async calibrateOverlay(): Promise<void> {
+		overlayCalibration.set({ status: 'running', message: null })
+		try {
+			await window.api?.overlay.calibrate()
+		} catch (reason) {
+			overlayCalibration.set({ status: 'failed', message: messageOf(reason) })
+		}
 	},
 
 	async connect(): Promise<() => void> {
@@ -216,10 +240,28 @@ function applySnapshot(snapshot: BackendState): void {
 }
 
 function clearError(): void {
+	clearTransientTimer()
 	if (!get(failed)) error.set(null)
 }
 
+function clearTransientTimer(): void {
+	if (transientErrorTimer) clearTimeout(transientErrorTimer)
+	transientErrorTimer = null
+}
+
+/** Shows a background error (translation, voice, emotion) for a short while. */
+function showTransientError(message: string): void {
+	if (get(failed)) return
+	error.set(message)
+	clearTransientTimer()
+	transientErrorTimer = setTimeout(() => {
+		transientErrorTimer = null
+		if (!get(failed) && get(error) === message) error.set(null)
+	}, TRANSIENT_ERROR_MS)
+}
+
 function markFailed(message: string): void {
+	clearTransientTimer()
 	failed.set(true)
 	error.set(message)
 	state.update((value) =>
@@ -275,6 +317,26 @@ function applyEvent(event: BackendEvent): void {
 						}
 					}
 				: value
+		)
+		return
+	}
+	if (event.event === 'overlay.calibration' && isRecord(event.data)) {
+		const { status, message } = event.data
+		// `running` carries the live hint, e.g. which condition is not met yet.
+		if (status === 'running' || status === 'done' || status === 'failed')
+			overlayCalibration.set({ status, message: typeof message === 'string' ? message : null })
+	}
+	if (event.event === 'overlay.status' && isOverlayStatus(event.data)) {
+		const overlay = event.data
+		state.update((value) =>
+			value && value.sessionId === event.sessionId ? { ...value, seq: event.seq, overlay } : value
+		)
+		return
+	}
+	if (event.event === 'settings.changed' && isRecord(event.data) && isRecord(event.data.settings)) {
+		const settings = event.data.settings as unknown as BackendSettings
+		state.update((value) =>
+			value && value.sessionId === event.sessionId ? { ...value, seq: event.seq, settings } : value
 		)
 		return
 	}
@@ -352,7 +414,7 @@ function applyEvent(event: BackendEvent): void {
 		)
 	}
 	if (event.event === 'translation.error' && isTranslationError(event.data)) {
-		error.set(event.data.message)
+		showTransientError(event.data.message)
 		const utteranceId = event.data.context?.utteranceId
 		if (utteranceId) {
 			transcripts.update((items) =>
@@ -363,7 +425,7 @@ function applyEvent(event: BackendEvent): void {
 		}
 	}
 	if (event.event === 'error' && isBackendErrorEvent(event.data)) {
-		error.set(event.data.message)
+		showTransientError(event.data.message)
 	}
 	state.update((value) =>
 		value && value.sessionId === event.sessionId ? { ...value, seq: event.seq } : value
@@ -380,6 +442,16 @@ function isModelStatus(value: unknown): value is {
 		typeof value.model === 'string' &&
 		['not_loaded', 'loading', 'ready', 'failed'].includes(String(value.status)) &&
 		(value.device === null || typeof value.device === 'string')
+	)
+}
+
+function isOverlayStatus(
+	value: unknown
+): value is { status: OverlayStatus; message: string | null } {
+	return (
+		isRecord(value) &&
+		['disabled', 'waiting', 'connected', 'unavailable', 'error'].includes(String(value.status)) &&
+		(value.message === null || typeof value.message === 'string')
 	)
 }
 

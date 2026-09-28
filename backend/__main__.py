@@ -8,6 +8,7 @@ import threading
 from typing import Any
 
 from backend.emotion import EmotionService
+from backend.overlay import OverlayService
 from backend.protocol import (
     ProtocolError,
     decode_request,
@@ -62,6 +63,7 @@ def main() -> int:
         voice_factory=VoiceService,
         emotion_factory=EmotionService,
         translation_factory=TranslationService,
+        overlay_factory=OverlayService,
     )
     try:
         for line in sys.stdin.buffer:
@@ -122,6 +124,11 @@ def self_test(
 
     stage("sentencepiece")
     import sentencepiece  # noqa: F401
+
+    stage("openvr")
+    import openvr
+
+    openvr.isRuntimeInstalled()
 
     configure_native_runtime()
     stage("ctranslate2")

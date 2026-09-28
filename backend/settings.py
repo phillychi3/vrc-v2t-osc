@@ -15,6 +15,7 @@ SPEECH_MODELS = {
     "large-v3-turbo",
 }
 TRANSLATION_MODELS = {MODEL_ID}
+OVERLAY_ANCHORS = {"head", "leftHand", "rightHand"}
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -38,10 +39,28 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     },
     "osc": {"enabled": True, "host": "127.0.0.1", "port": 9000},
     "emotion": {
-        "enabled": True,
+        "enabled": False,
         "parameter": "/avatar/parameters/v2t_sync_emo",
     },
     "privacy": {"saveAudio": False, "saveTranscripts": False},
+    "overlay": {
+        "enabled": False,
+        "anchor": "head",
+        "scale": 1.0,
+        "offsetX": 0.0,
+        "offsetY": -0.35,
+        "offsetZ": -1.5,
+        "pitch": 0.0,
+        "yaw": 0.0,
+        "roll": 0.0,
+        "opacity": 0.9,
+        "holdSeconds": 8,
+        "showMicrophone": False,
+        "showSpeaker": True,
+        "watchMode": False,
+        # Row-major 3x4 resting pose on the anchor, captured by calibration.
+        "basis": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
+    },
 }
 
 _ALLOWED_KEYS = {
@@ -61,6 +80,23 @@ _ALLOWED_KEYS = {
     "osc": {"enabled", "host", "port"},
     "emotion": {"enabled", "parameter"},
     "privacy": {"saveAudio", "saveTranscripts"},
+    "overlay": {
+        "enabled",
+        "anchor",
+        "scale",
+        "offsetX",
+        "offsetY",
+        "offsetZ",
+        "pitch",
+        "yaw",
+        "roll",
+        "opacity",
+        "holdSeconds",
+        "showMicrophone",
+        "showSpeaker",
+        "watchMode",
+        "basis",
+    },
 }
 
 
@@ -117,6 +153,7 @@ def _validate_values(settings: dict[str, Any]) -> None:
     osc = settings["osc"]
     emotion = settings["emotion"]
     privacy = settings["privacy"]
+    overlay = settings["overlay"]
 
     _require_string(audio["deviceId"], "audio.deviceId")
     _require_string(audio["speakerDeviceId"], "audio.speakerDeviceId")
@@ -151,6 +188,30 @@ def _validate_values(settings: dict[str, Any]) -> None:
         raise SettingsError("emotion.parameter 必須是有效的 OSC 位址")
     _require_bool(privacy["saveAudio"], "privacy.saveAudio")
     _require_bool(privacy["saveTranscripts"], "privacy.saveTranscripts")
+    _require_bool(overlay["enabled"], "overlay.enabled")
+    if overlay["anchor"] not in OVERLAY_ANCHORS:
+        raise SettingsError("overlay.anchor 必須是 head、leftHand 或 rightHand")
+    _require_number(overlay["scale"], "overlay.scale", 0.2, 2.0)
+    _require_number(overlay["offsetX"], "overlay.offsetX", -1.0, 1.0)
+    _require_number(overlay["offsetY"], "overlay.offsetY", -1.0, 1.0)
+    _require_number(overlay["offsetZ"], "overlay.offsetZ", -5.0, 1.0)
+    for axis in ("pitch", "yaw", "roll"):
+        _require_number(overlay[axis], f"overlay.{axis}", -180.0, 180.0)
+    _require_number(overlay["opacity"], "overlay.opacity", 0.2, 1.0)
+    if isinstance(overlay["holdSeconds"], bool) or not isinstance(
+        overlay["holdSeconds"], int
+    ):
+        raise SettingsError("overlay.holdSeconds 必須是整數")
+    if not 2 <= overlay["holdSeconds"] <= 60:
+        raise SettingsError("overlay.holdSeconds 必須介於 2 與 60")
+    _require_bool(overlay["showMicrophone"], "overlay.showMicrophone")
+    _require_bool(overlay["showSpeaker"], "overlay.showSpeaker")
+    _require_bool(overlay["watchMode"], "overlay.watchMode")
+    basis = overlay["basis"]
+    if not isinstance(basis, list) or len(basis) != 12:
+        raise SettingsError("overlay.basis 必須是 12 個數字")
+    for value in basis:
+        _require_number(value, "overlay.basis", -10.0, 10.0)
 
 
 def _require_string(value: object, path: str) -> str:
@@ -162,3 +223,10 @@ def _require_string(value: object, path: str) -> str:
 def _require_bool(value: object, path: str) -> None:
     if not isinstance(value, bool):
         raise SettingsError(f"{path} 必須是布林值")
+
+
+def _require_number(value: object, path: str, minimum: float, maximum: float) -> None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise SettingsError(f"{path} 必須是數字")
+    if not minimum <= value <= maximum:
+        raise SettingsError(f"{path} 必須介於 {minimum:g} 與 {maximum:g}")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import uuid
+from pathlib import Path
 from collections.abc import Callable
 from copy import deepcopy
 from typing import Any, Protocol
@@ -62,6 +63,17 @@ class TranslationProtocol(Protocol):
 TranslationFactory = Callable[..., TranslationProtocol]
 
 
+class OverlayProtocol(Protocol):
+    def configure(self, settings: dict[str, Any]) -> None: ...
+    def show_image(self, path: str) -> None: ...
+    def hide(self) -> None: ...
+    def calibrate(self, prompt_image: str, update: bool = False) -> bool: ...
+    def close(self) -> None: ...
+
+
+OverlayFactory = Callable[..., OverlayProtocol]
+
+
 class ServiceError(RuntimeError):
     def __init__(self, code: str, message: str, *, retryable: bool = False):
         super().__init__(message)
@@ -80,16 +92,23 @@ class BackendService:
         voice_factory: VoiceFactory | None = None,
         emotion_factory: EmotionFactory | None = None,
         translation_factory: TranslationFactory | None = None,
+        overlay_factory: OverlayFactory | None = None,
     ) -> None:
         self._emit_handler = emit
         self._osc_factory = osc_factory
         self._voice_factory = voice_factory
         self._emotion_factory = emotion_factory
         self._translation_factory = translation_factory
+        self._overlay_factory = overlay_factory
         self._osc: OscService | None = None
         self._voice: VoiceProtocol | None = None
         self._emotion: EmotionProtocol | None = None
         self._translation: TranslationProtocol | None = None
+        self._overlay: OverlayProtocol | None = None
+        self._overlay_status: dict[str, str | None] = {
+            "status": "disabled",
+            "message": None,
+        }
         self._lock = threading.RLock()
         self._settings = default_settings()
         self._session_id = str(uuid.uuid4())
@@ -124,6 +143,9 @@ class BackendService:
             "recording.stop": self._stop_recording,
             "translation.listProviders": self._list_translation_providers,
             "translation.translate": self._translate,
+            "overlay.show": self._show_overlay,
+            "overlay.hide": self._hide_overlay,
+            "overlay.calibrate": self._calibrate_overlay,
             "settings.update": self._update_settings,
             "text.send": self._send_text,
             "system.shutdown": self._shutdown,
@@ -146,6 +168,7 @@ class BackendService:
             voice, self._voice = self._voice, None
             emotion, self._emotion = self._emotion, None
             translation, self._translation = self._translation, None
+            overlay, self._overlay = self._overlay, None
         if osc is not None:
             osc.close()
         if voice is not None:
@@ -154,6 +177,8 @@ class BackendService:
             emotion.close()
         if translation is not None:
             translation.close()
+        if overlay is not None:
+            overlay.close()
         with self._lock:
             self._recording = "idle"
             self._recording_source = None
@@ -212,6 +237,12 @@ class BackendService:
                 on_result=self._on_translation_result,
                 on_status=self._on_translation_status,
                 on_error=self._on_translation_error,
+            )
+        if self._overlay_factory is not None:
+            self._overlay = self._overlay_factory(
+                settings=self._settings["overlay"],
+                on_status=self._on_overlay_status,
+                on_calibration=self._on_overlay_calibration,
             )
         with self._lock:
             return self._state()
@@ -324,6 +355,36 @@ class BackendService:
             )
         return {"jobId": job_id, "accepted": True}
 
+    def _overlay_image(self, params: dict[str, Any]) -> tuple[OverlayProtocol, str]:
+        overlay = self._overlay
+        if overlay is None:
+            raise ServiceError("OVERLAY_UNAVAILABLE", "VR 字幕服務尚未提供")
+        path = self._required_string(params, "path")
+        root = Path(str(self._data_path), "overlay").resolve()
+        image = Path(path).resolve()
+        if image.parent != root or image.suffix.lower() != ".png" or not image.is_file():
+            raise ServiceError("INVALID_PARAMS", "VR 字幕圖片路徑無效")
+        return overlay, str(image)
+
+    def _show_overlay(self, params: dict[str, Any]) -> object:
+        overlay, image = self._overlay_image(params)
+        overlay.show_image(image)
+        return {"accepted": True}
+
+    def _calibrate_overlay(self, params: dict[str, Any]) -> object:
+        overlay, prompt = self._overlay_image(params)
+        # `update` only refreshes the prompt of a calibration already running.
+        if not overlay.calibrate(prompt, params.get("update") is True):
+            raise ServiceError(
+                "OVERLAY_NOT_READY", "請先連線 SteamVR，並把字幕放在手上再校準"
+            )
+        return {"accepted": True}
+
+    def _hide_overlay(self, _params: dict[str, Any]) -> object:
+        if self._overlay is not None:
+            self._overlay.hide()
+        return {"accepted": True}
+
     def _update_settings(self, params: dict[str, Any]) -> object:
         patch = params.get("patch")
         try:
@@ -340,6 +401,7 @@ class BackendService:
         old_deepl_api_key = self._settings["translation"]["deeplApiKey"]
         old_parameter = self._settings["emotion"]["parameter"]
         old_emotion_enabled = self._settings["emotion"]["enabled"]
+        old_overlay = self._settings["overlay"]
         if (
             self._recordings["microphone"] not in {"idle", "error"}
             and candidate["audio"]["deviceId"] != old_device
@@ -403,7 +465,11 @@ class BackendService:
             self._replace_osc()
         elif self._osc is not None:
             self._osc.set_enabled(new_osc["enabled"])
-        return {"settings": deepcopy(self._settings)}
+        if candidate["overlay"] != old_overlay and self._overlay is not None:
+            self._overlay.configure(candidate["overlay"])
+        settings = deepcopy(self._settings)
+        self._emit("settings.changed", {"settings": deepcopy(settings)})
+        return {"settings": settings}
 
     def _send_text(self, params: dict[str, Any]) -> object:
         text = params.get("text")
@@ -573,6 +639,20 @@ class BackendService:
             {"code": "VOICE_ERROR", "message": message, "retryable": True},
         )
 
+    def _on_overlay_status(self, status: str, message: str | None) -> None:
+        data = {"status": status, "message": message}
+        with self._lock:
+            self._overlay_status = dict(data)
+        self._emit("overlay.status", data)
+
+    def _on_overlay_calibration(
+        self, status: str, basis: list[float] | None, message: str | None
+    ) -> None:
+        self._emit(
+            "overlay.calibration",
+            {"status": status, "basis": basis, "message": message},
+        )
+
     def _on_translation_result(self, result: dict[str, Any]) -> None:
         self._emit("translation.result", result)
         context = result.get("context")
@@ -714,6 +794,7 @@ class BackendService:
             "recordingSource": self._recording_source,
             "recordings": deepcopy(self._recordings),
             "models": deepcopy(self._models),
+            "overlay": dict(self._overlay_status),
             "settings": deepcopy(self._settings),
         }
 

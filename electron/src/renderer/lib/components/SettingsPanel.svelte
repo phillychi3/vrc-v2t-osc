@@ -1,9 +1,12 @@
 <script lang="ts">
 	import { KSwitch } from '@ikun-ui/switch'
+	import VrOverlaySettings from './VrOverlaySettings.svelte'
+	import type { OverlayCalibration } from '$lib/stores/backend'
 	import type {
 		AudioDevice,
 		BackendSettings,
 		BackendSettingsPatch,
+		BackendState,
 		TranslationProviderInfo
 	} from '$shared/ipc'
 
@@ -16,8 +19,12 @@
 		refreshingDevices = false,
 		saving = false,
 		standalone = false,
+		overlayStatus = null,
 		onRefreshDevices,
-		onUpdate
+		onUpdate,
+		onPreviewOverlay,
+		onCalibrateOverlay,
+		overlayCalibration = null
 	}: {
 		settings: BackendSettings | null
 		devices?: AudioDevice[]
@@ -27,8 +34,12 @@
 		refreshingDevices?: boolean
 		saving?: boolean
 		standalone?: boolean
+		overlayStatus?: BackendState['overlay'] | null
 		onRefreshDevices: () => Promise<void>
 		onUpdate: (patch: BackendSettingsPatch) => Promise<void>
+		onPreviewOverlay: () => Promise<void>
+		onCalibrateOverlay: () => Promise<void>
+		overlayCalibration?: OverlayCalibration | null
 	} = $props()
 
 	const microphoneDeviceOptions = $derived(
@@ -365,6 +376,19 @@
 					{saving ? '套用中…' : '套用翻譯設定'}
 				</button>
 			</div>
+		</section>
+
+		<section class="settings-section">
+			<h3 class="settings-heading">VR 字幕</h3>
+			<VrOverlaySettings
+				overlay={settings?.overlay}
+				status={overlayStatus}
+				{saving}
+				onUpdate={(patch) => onUpdate({ overlay: patch })}
+				onPreview={onPreviewOverlay}
+				calibration={overlayCalibration}
+				onCalibrate={onCalibrateOverlay}
+			/>
 		</section>
 
 		<section class="settings-section">

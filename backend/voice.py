@@ -17,7 +17,11 @@ from typing import Any
 
 from backend.inference import inference_lock
 from backend.audio import ResampleState, normalize_audio
-from backend.runtime import backend_variant, configure_native_runtime
+from backend.runtime import (
+    backend_variant,
+    configure_native_runtime,
+    missing_cuda_libraries,
+)
 
 
 ModelStatusHandler = Callable[[str, str, str | None], None]
@@ -473,6 +477,12 @@ class VoiceService:
                         device = "cuda"
                 except RuntimeError:
                     logging.warning("CUDA detection failed; using CPU", exc_info=True)
+                missing = missing_cuda_libraries() if device == "cuda" else []
+                if missing:
+                    logging.warning(
+                        "CUDA libraries unavailable (%s); using CPU", ", ".join(missing)
+                    )
+                    device = "cpu"
 
             def create_model(target: str):
                 name = self._model_name

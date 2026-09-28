@@ -20,6 +20,7 @@ pyaudiowpatch = "^0.2.12.8"
 sentencepiece = "0.2.1"
 pydub = "0.25.1"
 audioop-lts = {version = "0.2.2", markers = "python_version >= \"3.13\""}
+openvr = "2.12.1401"
 
 [tool.poetry.group.dev.dependencies]
 pyinstaller = {version = "^6.22.2", python = ">=3.12,<3.16"}

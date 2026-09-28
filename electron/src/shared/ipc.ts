@@ -11,6 +11,8 @@ export const IpcChannel = {
 	BackendTranslate: 'backend:translate',
 	BackendUpdateSettings: 'backend:update-settings',
 	BackendEvent: 'backend:event',
+	OverlayPreview: 'overlay:preview',
+	OverlayCalibrate: 'overlay:calibrate',
 	WindowMinimize: 'window:minimize',
 	WindowToggleMaximize: 'window:toggle-maximize',
 	WindowClose: 'window:close'
@@ -52,7 +54,45 @@ export interface BackendSettings {
 	osc: { enabled: boolean; host: string; port: number }
 	emotion: { enabled: boolean; parameter: string }
 	privacy: { saveAudio: boolean; saveTranscripts: boolean }
+	overlay: OverlaySettings
 }
+
+export type OverlayAnchor = 'head' | 'leftHand' | 'rightHand'
+
+export interface OverlaySettings {
+	enabled: boolean
+	/** Tracked device the panel follows. */
+	anchor: OverlayAnchor
+	/** Panel size multiplier; 1 is 1 m wide on the head, 0.3 m on a hand. */
+	scale: number
+	/**
+	 * Adjustments in meters along the panel's own axes, as the wearer sees it:
+	 * +X right, +Y up, +Z toward the eyes (on the head, -Z is forward).
+	 */
+	offsetX: number
+	offsetY: number
+	offsetZ: number
+	/** Rotation in degrees about the panel's own axes (Y, then X, then Z). */
+	pitch: number
+	yaw: number
+	roll: number
+	/**
+	 * Row-major 3x4 resting pose relative to the anchor device. Identity on the
+	 * head; on a hand, captured by calibration so the panel faces the wearer.
+	 */
+	basis: number[]
+	opacity: number
+	holdSeconds: number
+	showMicrophone: boolean
+	showSpeaker: boolean
+	/**
+	 * Hand anchors only: behave like a wrist watch. The panel fades in while it
+	 * is looked at and keeps the latest captions.
+	 */
+	watchMode: boolean
+}
+
+export type OverlayStatus = 'disabled' | 'waiting' | 'connected' | 'unavailable' | 'error'
 
 export type BackendSettingsPatch = {
 	[K in Exclude<keyof BackendSettings, 'schemaVersion'>]?: Partial<BackendSettings[K]>
@@ -96,6 +136,7 @@ export interface BackendState {
 		string,
 		{ status: 'not_loaded' | 'loading' | 'ready' | 'failed'; device: string | null }
 	>
+	overlay: { status: OverlayStatus; message: string | null }
 	settings: BackendSettings
 }
 
@@ -145,6 +186,13 @@ export interface BackendRequestMap {
 		params: TranslationRequest
 		result: { jobId: string; accepted: true }
 	}
+	'overlay.show': { params: { path: string }; result: { accepted: true } }
+	'overlay.hide': { params: Record<string, never>; result: { accepted: true } }
+	'overlay.calibrate': {
+		/** `update` only swaps the prompt of a calibration already running. */
+		params: { path: string; update?: boolean }
+		result: { accepted: true }
+	}
 	'text.send': { params: { text: string }; result: { utteranceId: string; accepted: boolean } }
 	'settings.update': {
 		params: { patch: BackendSettingsPatch }
@@ -169,6 +217,12 @@ export interface RendererApi {
 		sendText: (text: string) => Promise<{ utteranceId: string; accepted: boolean }>
 		updateSettings: (patch: BackendSettingsPatch) => Promise<{ settings: BackendSettings }>
 		onEvent: (listener: (event: BackendEvent) => void) => () => void
+	}
+	overlay: {
+		/** Shows a sample caption in VR so its placement can be adjusted. */
+		preview: () => Promise<void>
+		/** Captures the watch pose; completion arrives as `overlay.calibration`. */
+		calibrate: () => Promise<void>
 	}
 	window: {
 		minimize: () => void

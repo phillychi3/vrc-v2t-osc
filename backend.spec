@@ -21,6 +21,12 @@ marker_dir.mkdir(parents=True, exist_ok=True)
 )
 datas = collect_data_files("faster_whisper") + [(str(marker_dir / "runtime.json"), ".")]
 binaries = collect_dynamic_libs("ctranslate2") + collect_dynamic_libs("onnxruntime")
+# pyopenvr loads its bundled 64-bit openvr_api from the package directory.
+binaries += [
+    entry
+    for entry in collect_dynamic_libs("openvr")
+    if Path(entry[0]).name.lower() == "libopenvr_api_64.dll"
+]
 if variant == "cu126":
     for package in ("cublas", "cudnn", "cuda_runtime"):
         roots = [Path(p) / "nvidia" / package for p in sys.path]

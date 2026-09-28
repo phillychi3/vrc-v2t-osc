@@ -40,6 +40,7 @@ class VoiceAudioConversionTests(unittest.TestCase):
                     patch("backend.voice.os.cpu_count", return_value=24),
                     patch("backend.voice.threading.Thread"),
                     patch("backend.voice.backend_variant", return_value="auto"),
+                    patch("backend.voice.missing_cuda_libraries", return_value=[]),
                 ):
                     service._load_models(ct, whisper, Mock(), Mock())
                 self.assertTrue(service.ready)
@@ -71,10 +72,29 @@ class VoiceAudioConversionTests(unittest.TestCase):
         whisper.side_effect = [RuntimeError("missing cudnn"), model]
         with (
             patch("backend.voice.backend_variant", return_value="cu126"),
+            patch("backend.voice.missing_cuda_libraries", return_value=[]),
             patch("backend.voice.threading.Thread"),
         ):
             service._load_models(ct, whisper, Mock(), Mock())
         self.assertTrue(service.ready)
+        self.assertEqual(whisper.call_args.args, ("base",))
+        self.assertEqual(whisper.call_args.kwargs["device"], "cpu")
+
+    def test_missing_cudnn_skips_cuda_before_native_loader_can_abort(self):
+        service = self.make_service()
+        ct, whisper = Mock(), Mock()
+        ct.get_cuda_device_count.return_value = 1
+        whisper.return_value.transcribe.return_value = (iter([]), None)
+        with (
+            patch("backend.voice.backend_variant", return_value="auto"),
+            patch(
+                "backend.voice.missing_cuda_libraries",
+                return_value=["cudnn_ops64_9.dll"],
+            ),
+            patch("backend.voice.threading.Thread"),
+        ):
+            service._load_models(ct, whisper, Mock(), Mock())
+        whisper.assert_called_once()
         self.assertEqual(whisper.call_args.args, ("base",))
         self.assertEqual(whisper.call_args.kwargs["device"], "cpu")
 

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="zh-Hant">
+	<head>
+		<meta charset="utf-8" />
+		<meta
+			http-equiv="Content-Security-Policy"
+			content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'"
+		/>
+		<title>VRC2T VR Captions</title>
+		<!-- Rendered offscreen by the main process and uploaded to SteamVR as a
+		     texture. The viewport is the texture size, so sizes here are pixels. -->
+		<style>
+			* {
+				box-sizing: border-box;
+			}
+			html,
+			body {
+				width: 100%;
+				height: 100%;
+				margin: 0;
+				overflow: hidden;
+				background: transparent;
+			}
+			body {
+				display: flex;
+				flex-direction: column;
+				justify-content: flex-end;
+				align-items: center;
+				gap: 14px;
+				padding: 16px 24px;
+				font-family:
+					'Segoe UI', 'Microsoft JhengHei UI', 'Microsoft JhengHei', 'Yu Gothic UI',
+					'Malgun Gothic', sans-serif;
+				color: #fafafa;
+				-webkit-font-smoothing: antialiased;
+			}
+			.caption {
+				display: flex;
+				gap: 18px;
+				max-width: 100%;
+				padding: 16px 28px 18px 20px;
+				border-radius: 22px;
+				background: rgba(12, 12, 16, 0.82);
+				border: 2px solid rgba(255, 255, 255, 0.08);
+			}
+			.caption:not(:last-child) .text {
+				opacity: 0.6;
+			}
+			.marker {
+				flex: none;
+				width: 8px;
+				border-radius: 4px;
+				background: #38bdf8;
+			}
+			.caption.microphone .marker {
+				background: #f97316;
+			}
+			.text {
+				min-width: 0;
+			}
+			.primary {
+				display: -webkit-box;
+				-webkit-box-orient: vertical;
+				-webkit-line-clamp: 2;
+				overflow: hidden;
+				font-size: 46px;
+				font-weight: 600;
+				line-height: 1.28;
+				overflow-wrap: anywhere;
+			}
+			.secondary {
+				display: -webkit-box;
+				-webkit-box-orient: vertical;
+				-webkit-line-clamp: 1;
+				overflow: hidden;
+				margin-top: 6px;
+				font-size: 28px;
+				line-height: 1.3;
+				color: #a1a1aa;
+				overflow-wrap: anywhere;
+			}
+			.secondary.pending {
+				font-style: italic;
+				color: #71717a;
+			}
+
+			/* Wrist-watch face: one rounded panel filling the texture. Its
+			   background must live on .face, not <body>: a body background
+			   spreads to the whole canvas and would fill the corners. */
+			body.watch {
+				align-items: stretch;
+				padding: 0;
+			}
+			.watch .face {
+				display: flex;
+				flex: 1;
+				min-height: 0;
+				flex-direction: column;
+				justify-content: flex-end;
+				gap: 16px;
+				padding: 32px 36px;
+				overflow: hidden;
+				border-radius: 56px;
+				background: rgba(12, 12, 16, 0.9);
+				border: 3px solid rgba(255, 255, 255, 0.1);
+			}
+			.watch .caption {
+				padding: 0;
+				border: 0;
+				border-radius: 0;
+				background: none;
+			}
+			.watch .primary {
+				font-size: 40px;
+				-webkit-line-clamp: 3;
+			}
+			.watch .secondary {
+				font-size: 26px;
+			}
+			.watch .empty {
+				margin: auto;
+				font-size: 32px;
+				color: #71717a;
+			}
+		</style>
+	</head>
+	<body>
+		<script src="./overlay.js"></script>
+	</body>
+</html>
