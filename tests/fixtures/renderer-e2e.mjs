@@ -134,6 +134,13 @@ async function waitFor(expression) {
 	} while (Date.now() < deadline)
 	throw new Error(`UI condition timed out: ${expression}`)
 }
+/** Picks an option from an in-page Select the way a pointer would. */
+async function choose(trigger, value) {
+	await evaluate(`document.querySelector(${JSON.stringify(trigger)}).click()`)
+	const option = `${trigger} + [role=listbox] [role=option][data-value=${JSON.stringify(value)}]`
+	await waitFor(`Boolean(document.querySelector(${JSON.stringify(option)}))`)
+	await evaluate(`document.querySelector(${JSON.stringify(option)}).click()`)
+}
 async function input(value, keyOptions = {}) {
 	await evaluate(`(() => {
 		const input = document.querySelector('textarea');
@@ -169,7 +176,7 @@ async function run() {
 		)
 		assert.equal(await evaluate(`document.querySelector('.feature-action').disabled`), true)
 		await input('模型載入時也能送字')
-		await waitFor(`document.querySelector('article')?.textContent.includes('已送出')`)
+		await waitFor(`document.querySelector('article')?.textContent.includes('已送到聊天框')`)
 		assert.deepEqual(sent, ['模型載入時也能送字'])
 		evidence.push('model loading disables recording but permits manual text; OSC status rendered')
 
@@ -211,32 +218,29 @@ async function run() {
 			)
 		}
 		await evaluate(`document.querySelector('.titlebar-nav').click()`)
-		await waitFor(`document.querySelector('#speech-model')?.value === 'auto'`)
-		assert.equal(await evaluate(`document.querySelector('#speaker-device').value`), 'index:99')
+		await waitFor(`document.querySelector('#speech-model')?.dataset.value === 'auto'`)
+		assert.equal(
+			await evaluate(`document.querySelector('#speaker-device').dataset.value`),
+			'index:99'
+		)
 		const refreshesBefore = deviceRefreshes
-		await evaluate(`document.querySelector('[aria-label="重新整理喇叭裝置"]').click()`)
+		await evaluate(`document.querySelector('[aria-label="重新整理裝置"]').click()`)
 		await waitFor(`!document.querySelector('#speaker-device').disabled`)
 		assert.ok(deviceRefreshes > refreshesBefore)
-		await evaluate(`(() => {
-			const select = document.querySelector('#speaker-device');
-			select.value = 'speaker:default'; select.dispatchEvent(new Event('change', { bubbles: true }));
-		})()`)
+		await choose('#speaker-device', 'speaker:default')
 		await waitFor(`!document.querySelector('#speaker-device').disabled`)
 		assert.equal(settings.audio.speakerDeviceId, 'speaker:default')
-		await evaluate(`document.querySelector('[aria-label="重新整理喇叭裝置"]').click()`)
+		await evaluate(`document.querySelector('[aria-label="重新整理裝置"]').click()`)
 		await waitFor(`!document.querySelector('#speaker-device').disabled`)
 		assert.equal(
-			await evaluate(`document.querySelector('#speaker-device').value`),
+			await evaluate(`document.querySelector('#speaker-device').dataset.value`),
 			'speaker:default'
 		)
 		evidence.push(
 			'missing speaker can be replaced by system default; selection survives device refresh'
 		)
-		await evaluate(`(() => {
-		const select = document.querySelector('#speech-model');
-		select.value = 'small'; select.dispatchEvent(new Event('change', { bubbles: true }));
-	})()`)
-		await waitFor(`document.querySelector('#speech-model').value === 'small'`)
+		await choose('#speech-model', 'small')
+		await waitFor(`document.querySelector('#speech-model').dataset.value === 'small'`)
 		assert.equal(settings.speech.model, 'small')
 		await evaluate(`document.querySelector('.titlebar-nav').click()`)
 		await waitFor(`Boolean(document.querySelector('textarea'))`)

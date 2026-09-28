@@ -1,6 +1,8 @@
 import '@unocss/reset/tailwind.css'
 import 'virtual:uno.css'
 import './app.css'
+// Applies the saved interface size before the first paint.
+import './lib/stores/ui'
 
 import { mount } from 'svelte'
 import App from './App.svelte'

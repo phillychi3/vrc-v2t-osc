@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { KSwitch } from '@ikun-ui/switch'
+	import SettingRow from './ui/SettingRow.svelte'
+	import Switch from './ui/Switch.svelte'
 	import type { BackendState, OverlaySettings } from '$shared/ipc'
 	import type { OverlayCalibration } from '$lib/stores/backend'
 	import {
@@ -171,15 +172,16 @@
 
 {#snippet slider(control: RangeControl)}
 	<div>
-		<div class="mb-1 flex items-center justify-between">
+		<div class="flex items-center justify-between">
 			<label class="field-label !mb-0" for="overlay-{control.key}">{control.label}</label>
-			<span class="font-mono text-xs text-zinc-500">{control.format(draft[control.key])}</span>
+			<span class="font-mono text-sm text-[var(--text-subtle)]"
+				>{control.format(draft[control.key])}</span
+			>
 		</div>
 		<input
 			id="overlay-{control.key}"
 			type="range"
 			class="w-full"
-			style="accent-color: var(--color-accent-500)"
 			min={control.min}
 			max={control.max}
 			step={control.step}
@@ -190,47 +192,41 @@
 	</div>
 {/snippet}
 
-<div class="flex items-center justify-between gap-4 py-2.5">
-	<div class="min-w-0">
-		<div class="text-sm font-medium text-zinc-800 dark:text-zinc-200">在遊戲內顯示字幕</div>
-		<div class="mt-0.5 text-xs leading-relaxed text-zinc-500">
-			透過 SteamVR overlay 顯示即時辨識與翻譯結果
-		</div>
-	</div>
-	<KSwitch
-		value={overlay?.enabled ?? false}
+<SettingRow title="在遊戲內顯示字幕" description="透過 SteamVR overlay 顯示即時辨識與翻譯結果">
+	<Switch
+		label="在遊戲內顯示字幕"
+		checked={overlay?.enabled ?? false}
 		{disabled}
-		attrs={{ 'aria-label': '在遊戲內顯示字幕' }}
-		on:updateValue={(event) => void onUpdate({ enabled: Boolean(event.detail) })}
+		onChange={(enabled) => void onUpdate({ enabled })}
 	/>
-</div>
+</SettingRow>
 
 {#if overlay?.enabled}
 	<div
-		class="mb-3 flex items-start gap-2 rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-800/60 dark:text-zinc-300"
+		class="mt-1 flex items-center gap-2.5 rounded-xl bg-[var(--surface-muted)] px-4 py-3 text-sm"
 		role="status"
 	>
-		<span class="mt-1 size-2 shrink-0 rounded-full {statusView.tone}"></span>
+		<span class="status-dot {statusView.tone}"></span>
 		<span>{statusView.label}{status?.message ? `：${status.message}` : ''}</span>
 	</div>
 {/if}
 
-<div class="space-y-3">
+<div class="mt-5 space-y-5">
 	<div>
 		<div class="field-label">顯示位置</div>
-		<div class="grid grid-cols-2 gap-2" role="radiogroup" aria-label="顯示位置">
+		<div class="grid grid-cols-2 gap-2 md:grid-cols-3" role="radiogroup" aria-label="顯示位置">
 			{#each presets as preset (preset.id)}
 				<button
 					type="button"
 					role="radio"
 					aria-checked={activePreset === preset.id}
-					class="btn-secondary h-10 justify-start px-3 text-xs {activePreset === preset.id
-						? '!border-accent-500 !text-accent-600'
+					class="btn-secondary h-12 justify-start px-4 text-sm {activePreset === preset.id
+						? '!border-[var(--color-accent-500)] !text-[var(--color-accent-500)]'
 						: ''}"
 					{disabled}
 					onclick={() => void applyPreset(preset.id)}
 				>
-					<span class="{preset.icon} size-4 shrink-0"></span>
+					<span class="{preset.icon} size-5 shrink-0"></span>
 					{preset.label}
 				</button>
 			{/each}
@@ -241,9 +237,9 @@
 	</div>
 
 	{#if overlay && overlay.anchor !== 'head'}
-		<div class="rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
-			<div class="text-sm font-medium text-zinc-800 dark:text-zinc-200">校準手錶位置</div>
-			<p class="mt-1 text-xs leading-relaxed text-zinc-500">
+		<div class="rounded-xl border border-[var(--border)] p-4">
+			<div class="setting-title">校準手錶位置</div>
+			<p class="setting-description">
 				按下後，在 VR 中像看手錶一樣抬起{overlay.anchor === 'leftHand'
 					? '左'
 					: '右'}手臂，看著前臂上要戴手錶的位置，保持不動約 2
@@ -251,63 +247,60 @@
 			</p>
 			<button
 				type="button"
-				class="btn-accent mt-2.5 h-9 w-full px-3 text-xs"
+				class="btn-accent mt-3 h-12 w-full px-4 text-base"
 				disabled={disabled || !overlay.enabled || !connected || calibrationRunning}
 				onclick={() => void onCalibrate()}
 			>
 				<span
 					class="{calibrationRunning
 						? 'i-carbon-circle-dash animate-spin'
-						: 'i-carbon-time'} size-3.5"
+						: 'i-carbon-time'} size-5"
 				></span>
 				{calibrationRunning ? '請在 VR 中抬起手臂…' : '開始校準'}
 			</button>
 			{#if calibration?.status === 'running' && calibration.message}
-				<p class="field-help text-amber-600 dark:text-amber-400" role="status">
+				<p class="field-help !text-amber-600 dark:!text-amber-400" role="status">
 					{calibration.message}
 				</p>
 			{:else if calibration?.status === 'done'}
-				<p class="field-help text-emerald-600 dark:text-emerald-400">
+				<p class="field-help !text-emerald-600 dark:!text-emerald-400">
 					校準完成，可以再用下方的微調修正位置。
 				</p>
 			{:else if calibration?.status === 'failed'}
-				<p class="field-help text-red-600 dark:text-red-400">{calibration.message ?? '校準失敗'}</p>
+				<p class="field-help !text-red-600 dark:!text-red-400">
+					{calibration.message ?? '校準失敗'}
+				</p>
 			{/if}
 		</div>
 
-		<div class="flex items-center justify-between gap-4 py-1">
-			<div class="min-w-0">
-				<div class="text-sm font-medium text-zinc-800 dark:text-zinc-200">手錶模式</div>
-				<div class="mt-0.5 text-xs leading-relaxed text-zinc-500">
-					像看手錶一樣抬起手臂才會顯示，並保留最近的字幕
-				</div>
-			</div>
-			<KSwitch
-				value={overlay.watchMode}
+		<SettingRow title="手錶模式" description="像看手錶一樣抬起手臂才會顯示，並保留最近的字幕">
+			<Switch
+				label="手錶模式"
+				checked={overlay.watchMode}
 				{disabled}
-				attrs={{ 'aria-label': '手錶模式' }}
-				on:updateValue={(event) => void onUpdate({ watchMode: Boolean(event.detail) })}
+				onChange={(watchMode) => void onUpdate({ watchMode })}
 			/>
-		</div>
+		</SettingRow>
 	{/if}
 
 	<button
 		type="button"
-		class="btn-secondary h-9 w-full px-3 text-xs"
+		class="btn-secondary h-12 w-full px-4 text-sm"
 		disabled={disabled || !overlay?.enabled || !connected || previewing}
 		onclick={() => void preview()}
 	>
-		<span class="i-carbon-view size-3.5"></span>
+		<span class="i-carbon-view size-5"></span>
 		顯示測試字幕
 	</button>
 
-	<details class="group">
+	<details class="group rounded-xl border border-[var(--border)]">
 		<summary
-			class="cursor-pointer list-none text-xs font-semibold text-zinc-600 dark:text-zinc-300"
+			class="flex min-h-12 cursor-pointer list-none items-center justify-between px-4 text-sm font-semibold text-[var(--text-muted)]"
 		>
-			微調位置與角度 <span class="float-right transition-transform group-open:rotate-90">›</span>
+			微調位置與角度
+			<span class="i-carbon-chevron-down size-4 transition-transform group-open:rotate-180"></span>
 		</summary>
-		<div class="mt-3 space-y-3">
+		<div class="space-y-3 border-t border-[var(--border)] p-4">
 			{#each placementControls as control (control.key)}
 				{@render slider(control)}
 			{/each}
@@ -315,28 +308,30 @@
 		</div>
 	</details>
 
-	<div class="flex items-center justify-between gap-4 py-1">
-		<div class="text-sm font-medium text-zinc-800 dark:text-zinc-200">顯示他人語音（喇叭）</div>
-		<KSwitch
-			value={overlay?.showSpeaker ?? true}
-			{disabled}
-			attrs={{ 'aria-label': '顯示他人語音' }}
-			on:updateValue={(event) => void onUpdate({ showSpeaker: Boolean(event.detail) })}
-		/>
+	<div>
+		<SettingRow title="顯示他人語音" description="遊戲裡聽到的聲音（喇叭）">
+			<Switch
+				label="顯示他人語音"
+				checked={overlay?.showSpeaker ?? true}
+				{disabled}
+				onChange={(showSpeaker) => void onUpdate({ showSpeaker })}
+			/>
+		</SettingRow>
+		<SettingRow title="顯示自己的語音" description="你對麥克風說的話">
+			<Switch
+				label="顯示自己的語音"
+				checked={overlay?.showMicrophone ?? false}
+				{disabled}
+				onChange={(showMicrophone) => void onUpdate({ showMicrophone })}
+			/>
+		</SettingRow>
 	</div>
-	<div class="flex items-center justify-between gap-4 py-1">
-		<div class="text-sm font-medium text-zinc-800 dark:text-zinc-200">顯示自己的語音（麥克風）</div>
-		<KSwitch
-			value={overlay?.showMicrophone ?? false}
-			{disabled}
-			attrs={{ 'aria-label': '顯示自己的語音' }}
-			on:updateValue={(event) => void onUpdate({ showMicrophone: Boolean(event.detail) })}
-		/>
+	<div class="space-y-3">
+		{#each displayControls as control (control.key)}
+			{@render slider(control)}
+		{/each}
 	</div>
-	{#each displayControls as control (control.key)}
-		{@render slider(control)}
-	{/each}
 	<p class="field-help">
-		需先啟動 SteamVR；本程式不會自動開啟 SteamVR。字幕會在 SteamVR 啟動後自動出現。
+		需先啟動 SteamVR；本程式不會自動開啟 SteamVR，字幕會在 SteamVR 啟動後自動出現。
 	</p>
 </div>

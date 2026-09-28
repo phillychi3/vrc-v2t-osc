@@ -1,22 +1,29 @@
 <script lang="ts">
 	import type { Transcript } from '$lib/stores/backend'
-	import ChatDashedIcon from '@iconify-svelte/material-symbols/chat-dashed'
 
 	let { items }: { items: Transcript[] } = $props()
 
-	function sourceLabel(source: string): string {
-		return source === 'voice'
-			? '麥克風'
-			: source === 'speaker'
-				? '喇叭'
-				: source === 'manual'
-					? '手動'
-					: source
+	const sources: Record<string, { label: string; icon: string; tone: string }> = {
+		voice: {
+			label: '我',
+			icon: 'i-carbon-microphone-filled',
+			tone: 'bg-orange-100 text-orange-700 dark:bg-orange-950/70 dark:text-orange-300'
+		},
+		speaker: {
+			label: '他人',
+			icon: 'i-carbon-volume-up-filled',
+			tone: 'bg-sky-100 text-sky-700 dark:bg-sky-950/70 dark:text-sky-300'
+		},
+		manual: {
+			label: '輸入',
+			icon: 'i-carbon-keyboard',
+			tone: 'bg-zinc-200 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
+		}
 	}
 
 	const emotionLabels = ['平淡', '關切', '開心', '憤怒', '悲傷', '疑問', '驚奇', '厭惡']
 	const oscReasons: Record<string, string> = {
-		disabled: 'OSC 已停用',
+		disabled: 'OSC 已停用，未送出',
 		overloaded: '佇列已滿，未送出',
 		stale: '錄音已停止，未送出',
 		closed: '後端已關閉，未送出',
@@ -26,12 +33,17 @@
 		empty: '空白文字，未送出'
 	}
 
-	function oscLabel(item: Transcript): string {
-		if (item.source === 'speaker') return ''
-		if (item.oscStatus === 'sent') return '已送出'
-		if (item.oscStatus === 'pending') return '等待送出'
-		if (item.oscStatus === 'skipped') return oscReasons[item.oscReason ?? ''] ?? '未送出'
-		return ''
+	function oscStatus(item: Transcript): { label: string; tone: string } | null {
+		if (item.source === 'speaker') return null
+		if (item.oscStatus === 'sent')
+			return { label: '已送到聊天框', tone: 'text-emerald-600 dark:text-emerald-400' }
+		if (item.oscStatus === 'pending') return { label: '等待送出', tone: '' }
+		if (item.oscStatus === 'skipped')
+			return {
+				label: oscReasons[item.oscReason ?? ''] ?? '未送出',
+				tone: 'text-amber-600 dark:text-amber-400'
+			}
+		return null
 	}
 
 	function timeLabel(value?: string): string {
@@ -44,55 +56,53 @@
 
 <section class="flex min-h-0 flex-1 flex-col">
 	<div
-		class="min-h-0 flex-1 overflow-y-scroll overscroll-contain px-4 py-3"
+		class="min-h-0 flex-1 overflow-y-scroll overscroll-contain px-4 pb-4"
 		data-selectable
 		role="region"
 		aria-label="逐字稿訊息"
 	>
 		{#if items.length === 0}
-			<div
-				class="grid h-full min-h-48 place-items-center rounded-2xl border border-dashed border-zinc-200 bg-zinc-50/60 p-8 text-center dark:border-zinc-800 dark:bg-zinc-900/25"
-			>
-				<div>
-					<ChatDashedIcon class="mx-auto mb-4 h-8 w-8 text-zinc-400 dark:text-zinc-500" />
+			<div class="grid h-full min-h-48 place-items-center rounded-2xl p-8 text-center">
+				<div class="max-w-md">
+					<span class="i-carbon-chat mx-auto mb-4 block size-10 text-[var(--text-subtle)]"></span>
+					<p class="text-lg font-semibold">還沒有字幕</p>
 				</div>
 			</div>
 		{:else}
-			<div class="space-y-1">
+			<div class="space-y-2">
 				{#each items as item (item.utteranceId)}
+					{@const source = sources[item.source] ?? sources.manual}
+					{@const osc = oscStatus(item)}
 					<article
-						class="group grid grid-cols-[4rem_1fr_auto] gap-3 rounded-xl px-3 py-3 hover:bg-zinc-100/80 dark:hover:bg-zinc-900/70"
+						class="flex gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3"
 					>
-						<div>
-							<span
-								class="rounded-md px-1.5 py-1 text-[10px] font-semibold {item.source === 'voice'
-									? 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300'
-									: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'}"
-								>{sourceLabel(item.source)}</span
-							>
-						</div>
-						<div class="min-w-0">
-							<p class="whitespace-pre-wrap text-sm leading-6 text-zinc-800 dark:text-zinc-200">
-								{item.text}
-							</p>
+						<span
+							class="mt-0.5 inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-bold {source.tone}"
+						>
+							<span class="{source.icon} size-3.5"></span>{source.label}
+						</span>
+						<div class="min-w-0 flex-1">
+							<p class="whitespace-pre-wrap text-base font-medium leading-7">{item.text}</p>
 							{#if item.translatedText}
 								<p
-									class="mt-1 whitespace-pre-wrap border-l-2 border-orange-300 pl-2 text-sm leading-6 text-zinc-600 dark:border-orange-700 dark:text-zinc-300"
+									class="mt-1 whitespace-pre-wrap border-l-3 border-[var(--color-accent-500)] pl-3 text-base leading-7 text-[var(--text-muted)]"
 								>
 									{item.translatedText}
 								</p>
 							{:else if item.translationPending}
-								<p class="mt-1 text-xs text-zinc-400">翻譯中…</p>
+								<p class="mt-1 text-sm italic text-[var(--text-subtle)]">翻譯中…</p>
 							{/if}
-						</div>
-						<div class="pt-1 text-right text-[10px] text-zinc-400">
-							<time class="block">{timeLabel(item.receivedAt)}</time>
-							<span class="mt-1 block">{oscLabel(item)}</span>
-							{#if item.emotion !== undefined}
-								<span class="mt-1 block"
-									>{emotionLabels[item.emotion] ?? `情緒 ${item.emotion}`}</span
-								>
-							{/if}
+							<div
+								class="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--text-subtle)]"
+							>
+								<time>{timeLabel(item.receivedAt)}</time>
+								{#if osc}
+									<span class={osc.tone}>{osc.label}</span>
+								{/if}
+								{#if item.emotion !== undefined}
+									<span>情緒：{emotionLabels[item.emotion] ?? item.emotion}</span>
+								{/if}
+							</div>
 						</div>
 					</article>
 				{/each}
