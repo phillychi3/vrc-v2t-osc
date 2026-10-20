@@ -143,9 +143,12 @@ class VoiceAudioConversionTests(unittest.TestCase):
         errors, transcripts = [], []
         service = self.make_service(
             on_error=errors.append,
-            on_transcript=lambda text, source: transcripts.append((text, source)),
+            on_transcript=lambda text, source, language: transcripts.append(
+                (text, source, language)
+            ),
         )
         service._model = Mock()
+        service._model.detect_language.return_value = ("zh", 0.9, [("zh", 0.9)])
         service._model.transcribe.return_value = (
             iter([SimpleNamespace(text="測試")]),
             None,
@@ -156,10 +159,16 @@ class VoiceAudioConversionTests(unittest.TestCase):
         with patch.object(service, "_is_session_active", return_value=True):
             service._transcribe_loop()
         self.assertEqual(len(errors), 1)
-        self.assertEqual(transcripts, [("測試", "voice")])
+        self.assertEqual(transcripts, [("測試", "voice", "zh")])
         self.assertEqual(service._model.transcribe.call_count, 1)
-        self.assertNotIn("fp16", service._model.transcribe.call_args.kwargs)
-        self.assertFalse(service._model.transcribe.call_args.kwargs["vad_filter"])
+        kwargs = service._model.transcribe.call_args.kwargs
+        self.assertNotIn("fp16", kwargs)
+        self.assertFalse(kwargs["vad_filter"])
+        self.assertEqual(kwargs["language"], "zh")
+        self.assertEqual(kwargs["task"], "transcribe")
+        self.assertGreater(kwargs["beam_size"], 1)
+        self.assertGreater(len(kwargs["temperature"]), 1)
+        self.assertIn("繁體", kwargs["initial_prompt"])
         self.assertEqual(service._segments.unfinished_tasks, 0)
 
     def test_flushing_silence_or_an_already_finished_utterance_returns_nothing(self):
@@ -291,11 +300,47 @@ class VoiceAudioConversionTests(unittest.TestCase):
         service.set_languages("ja", "auto")
         self.assertEqual(service._languages, {"voice": "ja", "speaker": None})
 
-    def test_speaker_english_retries_cjk_output_as_translation(self) -> None:
-        self.assertTrue(VoiceService._needs_english_retry("speaker", "en", "因為我們"))
-        self.assertFalse(VoiceService._needs_english_retry("speaker", "en", "because we"))
-        self.assertFalse(VoiceService._needs_english_retry("voice", "en", "因為我們"))
-        self.assertFalse(VoiceService._needs_english_retry("speaker", "ja", "因為我們"))
+    def test_confident_detection_wins_over_configured_language(self) -> None:
+        service = self.make_service(speaker_language="ja")
+        service._model = Mock()
+        service._model.detect_language.return_value = (
+            "en",
+            0.92,
+            [("en", 0.92), ("ja", 0.05)],
+        )
+
+        hints = service._language_hints("speaker")
+
+        self.assertEqual(hints, ["ja", "zh"])
+        self.assertEqual(service._choose_language(None, hints), ("en", 0.92))
+
+    def test_uncertain_detection_falls_back_to_likeliest_configured_language(self):
+        service = self.make_service(speaker_language="ja")
+        service._model = Mock()
+        service._model.detect_language.return_value = (
+            "ko",
+            0.4,
+            [("ko", 0.4), ("zh", 0.3), ("ja", 0.2)],
+        )
+
+        self.assertEqual(
+            service._choose_language(None, service._language_hints("speaker")),
+            ("zh", 0.3),
+        )
+        service.set_languages("auto", "auto")
+        self.assertEqual(service._language_hints("voice"), [])
+        self.assertEqual(service._choose_language(None, []), ("ko", 0.4))
+
+    def test_drops_caption_hallucinations_only(self) -> None:
+        for text in (
+            "字幕由Amara.org社区提供",
+            "謝謝觀看!",
+            "Thank you for watching.",
+            "以下是繁體中文的句子。",
+        ):
+            self.assertTrue(VoiceService._is_hallucination(text), text)
+        for text in ("謝謝", "謝謝你來看我", "Thank you", "今天很開心"):
+            self.assertFalse(VoiceService._is_hallucination(text), text)
 
     def test_vad_segment_includes_audio_before_trigger(self) -> None:
         buffer = _UtteranceBuffer(
@@ -423,7 +468,8 @@ class VoiceAudioConversionTests(unittest.TestCase):
         converted, state = VoiceService._normalize_audio(stereo, 2, 48000, None)
 
         self.assertIsNotNone(state)
-        self.assertGreaterEqual(len(converted) // 2, 159)
+        # The first block is shorter by the resampler's filter delay.
+        self.assertGreaterEqual(len(converted) // 2, 128)
         self.assertLessEqual(len(converted) // 2, 160)
 
     def test_capture_thread_finishes_before_stream_is_closed(self) -> None:

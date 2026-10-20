@@ -791,6 +791,62 @@ class ServiceTests(unittest.TestCase):
         )
         service.close()
 
+    def test_translation_uses_detected_spoken_language(self) -> None:
+        translations: list[FakeTranslation] = []
+        oscs: list[FakeOsc] = []
+
+        def make_translation(**kwargs: object) -> FakeTranslation:
+            translation = FakeTranslation(**kwargs)
+            translations.append(translation)
+            return translation
+
+        def make_osc(**kwargs: object) -> FakeOsc:
+            osc = FakeOsc(**kwargs)
+            oscs.append(osc)
+            return osc
+
+        settings = default_settings()
+        settings["translation"]["enabled"] = True
+        settings["translation"]["sourceLanguage"] = "zh"
+        settings["translation"]["targetLanguage"] = "ja"
+        service = BackendService(
+            lambda _name, payload: self.events.append(payload),
+            osc_factory=make_osc,  # type: ignore[arg-type]
+            translation_factory=make_translation,  # type: ignore[arg-type]
+        )
+        self.addCleanup(service.close)
+        service.handle(
+            Request(
+                "init",
+                "system.initialize",
+                {"settings": settings, "dataPath": "C:/data"},
+            )
+        )
+        submissions = translations[0].submissions
+
+        # Another player speaks English although "their language" is Japanese.
+        service._on_voice_transcript("good morning", "speaker", "en")
+        self.assertEqual(
+            (submissions[-1]["source_language"], submissions[-1]["target_language"]),
+            ("en", "zh"),
+        )
+
+        # Speaking the target language already: send it untranslated.
+        service._on_voice_transcript("おはよう", "voice", "ja")
+        self.assertEqual(len(submissions), 1)
+        self.assertEqual(oscs[0].sent, ["おはよう"])
+
+        # A language no provider covers is passed through as well.
+        service._on_voice_transcript("привет", "voice", "ru")
+        self.assertEqual(len(submissions), 1)
+        self.assertEqual(oscs[0].sent[-1], "привет")
+
+        service._on_voice_transcript("早安", "voice", "zh")
+        self.assertEqual(
+            (submissions[-1]["source_language"], submissions[-1]["target_language"]),
+            ("zh", "ja"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

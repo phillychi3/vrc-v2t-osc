@@ -11,7 +11,12 @@ from backend.osc import OscService, text_rejection_reason
 from backend import i18n
 from backend.i18n import t
 from backend.protocol import Request
-from backend.settings import apply_patch, default_settings, validate_settings
+from backend.settings import (
+    SUPPORTED_LANGUAGES,
+    apply_patch,
+    default_settings,
+    validate_settings,
+)
 
 
 EventHandler = Callable[[str, dict[str, Any]], None]
@@ -442,7 +447,7 @@ class BackendService:
             self._voice.load_models()
         elif self._voice is not None:
             self._voice.set_languages(
-                candidate["speech"]["language"],
+                self._local_language(),
                 candidate["translation"]["targetLanguage"],
             )
         if (
@@ -520,7 +525,7 @@ class BackendService:
             raise RuntimeError("語音服務工廠未設定")
         return self._voice_factory(
             model_name=self._settings["speech"]["model"],
-            language=self._settings["speech"]["language"],
+            language=self._local_language(),
             save_audio=self._settings["privacy"]["saveAudio"],
             save_dir=str(self._data_path) + "/voice_samples",
             on_model_status=self._on_speech_model_status,
@@ -576,7 +581,9 @@ class BackendService:
                 self._recording = "idle"
         self._emit("recording.state", {"state": state, "source": source})
 
-    def _on_voice_transcript(self, text: str, source: str = "voice") -> None:
+    def _on_voice_transcript(
+        self, text: str, source: str = "voice", language: str | None = None
+    ) -> None:
         utterance_id = str(uuid.uuid4())
         with self._lock:
             if self._lifecycle != "ready" or source in self._stopped_sources:
@@ -591,7 +598,7 @@ class BackendService:
             {"utteranceId": utterance_id, "text": text, "source": source},
         )
         translating = self._submit_transcript_translation(
-            utterance_id, text, source, generation
+            utterance_id, text, source, generation, language
         )
         if not translating and source == "voice":
             self._send_transcript_to_osc(utterance_id, text, source, generation)
@@ -716,23 +723,42 @@ class BackendService:
             and context.get("recordingGeneration") == self._recording_generations[source]
         )
 
+    def _local_language(self) -> str:
+        """The user's own language: "your language", else the speech setting."""
+        local_language = self._settings["translation"]["sourceLanguage"]
+        if local_language == "auto":
+            return self._settings["speech"]["language"]
+        return local_language
+
     def _submit_transcript_translation(
-        self, utterance_id: str, text: str, source: str, generation: int
+        self,
+        utterance_id: str,
+        text: str,
+        source: str,
+        generation: int,
+        detected_language: str | None = None,
     ) -> bool:
         translation = self._translation
         settings = self._settings["translation"]
         if not settings["enabled"] or translation is None:
             return False
 
-        local_language = settings["sourceLanguage"]
-        if local_language == "auto":
-            local_language = self._settings["speech"]["language"]
         if source == "speaker":
             source_language = settings["targetLanguage"]
-            target_language = local_language
+            target_language = self._local_language()
         else:
             source_language = settings["sourceLanguage"]
             target_language = settings["targetLanguage"]
+        if detected_language is not None:
+            # Translate from what was actually spoken. Text already in the
+            # target language, or in one the providers do not cover, is shown
+            # (and sent to VRChat) as is.
+            if (
+                detected_language == target_language
+                or detected_language not in SUPPORTED_LANGUAGES
+            ):
+                return False
+            source_language = detected_language
         options: dict[str, Any] = {}
         if settings["provider"] == "onnx":
             options = {"model": settings["model"]}

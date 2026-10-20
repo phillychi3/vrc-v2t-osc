@@ -114,11 +114,12 @@ def self_test(
     stage("numpy")
     import numpy as np
 
-    stage("pydub-pcm")
+    stage("av-resample")
     from backend.audio import normalize_audio
 
+    # The first block is shorter by the resampler's filter delay.
     converted, _ = normalize_audio(bytes(480 * 4), 2, 48000, None)
-    assert len(converted) == 160 * 2
+    assert 128 * 2 <= len(converted) <= 160 * 2
 
     stage("pyaudiowpatch")
     import pyaudiowpatch  # noqa: F401

@@ -27,10 +27,10 @@ from backend.runtime import (
 
 ModelStatusHandler = Callable[[str, str, str | None], None]
 RecordingStateHandler = Callable[[str, str], None]
-TranscriptHandler = Callable[[str, str], None]
+# (text, source, detected Whisper language code)
+TranscriptHandler = Callable[[str, str, str | None], None]
 ErrorHandler = Callable[[str], None]
 Segment = tuple[str, str, bytes, float]
-_CJK_PATTERN = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]")
 _FRAMES_PER_BUFFER = 1024
 # ~1.4s of 48 kHz loopback audio; deep enough to ride out a Whisper burst.
 _FRAME_QUEUE_SIZE = 64
@@ -39,6 +39,43 @@ _FRAME_POLL_SECONDS = 0.1
 _VAD_BATCH_SAMPLES = 1600  # Run VAD at most ten times per second per device.
 _END_SILENCE_SECONDS = 0.8
 _MAX_SEGMENT_WAIT_SECONDS = 15.0
+# Greedy decoding without temperature fallback was noticeably less accurate;
+# beam search costs little next to the encoder on short clips.
+_BEAM_SIZE = 5
+_TEMPERATURES = (0.0, 0.2, 0.4, 0.6)
+# Above this, trust Whisper's language detection even when it names a language
+# outside the configured pair. Short or quiet clips score lower, and then the
+# configured languages are more reliable than the raw top guess.
+_LANGUAGE_CONFIDENCE = 0.6
+# Steers Chinese output to Traditional characters with punctuation; Whisper
+# otherwise picks Simplified or Traditional per clip.
+_INITIAL_PROMPTS = {"zh": "以下是繁體中文的句子。"}
+# Whisper's training data was full of video captions, so silence and noise
+# decode to sign-off lines. Drop clips made of nothing else.
+_HALLUCINATION_FRAGMENTS = re.compile(
+    r"amara\.org|明鏡|明镜|點點欄目|点点栏目|字幕(?:由|提供|製作|制作|志願者|志愿者)",
+    re.IGNORECASE,
+)
+_HALLUCINATION_LINES = {
+    "謝謝觀看",
+    "谢谢观看",
+    "感謝觀看",
+    "感谢观看",
+    "謝謝收看",
+    "谢谢收看",
+    "謝謝大家觀看",
+    "請不吝點贊訂閱轉發打賞支持",
+    "thankyouforwatching",
+    "thanksforwatching",
+    "pleasesubscribe",
+    "ご視聴ありがとうございました",
+    "チャンネル登録お願いします",
+    "시청해주셔서감사합니다",
+    "구독과좋아요부탁드립니다",
+    # The prompt itself comes back verbatim on silent clips.
+    "以下是繁體中文的句子",
+}
+_PUNCTUATION = re.compile(r"[\W_]+")
 
 
 class _UtteranceBuffer:
@@ -649,21 +686,22 @@ class VoiceService:
                     np.frombuffer(segment, dtype=np.int16).astype(np.float32) / 32768.0
                 )
                 with self._lock:
-                    language = self._languages[
-                        "speaker" if transcript_source == "speaker" else "voice"
-                    ]
+                    hints = self._language_hints(transcript_source)
                 with inference_lock():
                     wait_seconds = time.monotonic() - queued_at
                     stale = wait_seconds > _MAX_SEGMENT_WAIT_SECONDS
                     if not stale:
                         started_at = time.monotonic()
+                        language, probability = self._choose_language(audio, hints)
                         segments, _ = self._model.transcribe(
                             audio,
                             language=language,
                             task="transcribe",
-                            temperature=0.0,
-                            beam_size=1,
+                            temperature=_TEMPERATURES,
+                            beam_size=_BEAM_SIZE,
                             condition_on_previous_text=False,
+                            without_timestamps=True,
+                            initial_prompt=_INITIAL_PROMPTS.get(language),
                             vad_filter=False,  # Capture already applies built-in VAD.
                         )
                         # Inference is lazy: keep iteration inside the lock.
@@ -676,21 +714,15 @@ class VoiceService:
                     )
                     self._on_error(t("backend.voice.tooSlow"))
                     continue
-                if self._needs_english_retry(transcript_source, language, text):
-                    with inference_lock():
-                        segments, _ = self._model.transcribe(
-                            audio,
-                            language=None,
-                            task="translate",
-                            temperature=0.0,
-                            beam_size=1,
-                            condition_on_previous_text=False,
-                            vad_filter=False,
-                        )
-                        text = "".join(part.text for part in segments).strip()
+                if self._is_hallucination(text):
+                    logging.info("Dropped caption-like %s hallucination", transcript_source)
+                    text = ""
                 logging.info(
-                    "Speech source=%s audio=%.2fs queue=%.2fs inference=%.2fs",
+                    "Speech source=%s language=%s (%.2f) audio=%.2fs queue=%.2fs "
+                    "inference=%.2fs",
                     transcript_source,
+                    language,
+                    probability,
                     len(audio) / 16000,
                     wait_seconds,
                     time.monotonic() - started_at,
@@ -699,7 +731,7 @@ class VoiceService:
                     # Stop must retire this session before a later start can
                     # admit callbacks; checking and publishing are one operation.
                     if text and self._is_session_active(transcript_source, session_id):
-                        self._on_transcript(text, transcript_source)
+                        self._on_transcript(text, transcript_source, language)
             except Exception as exc:
                 logging.exception("Transcription failed")
                 if not self._closed.is_set():
@@ -791,15 +823,31 @@ class VoiceService:
         normalized = language.strip()
         return None if normalized == "auto" else normalized
 
+    def _language_hints(self, transcript_source: str) -> list[str]:
+        """Configured languages for a source, its own language first."""
+        own = "speaker" if transcript_source == "speaker" else "voice"
+        other = "voice" if own == "speaker" else "speaker"
+        hints = [self._languages[own], self._languages[other]]
+        return list(dict.fromkeys(code for code in hints if code))
+
+    def _choose_language(self, audio: Any, hints: list[str]) -> tuple[str, float]:
+        """Detects the spoken language instead of forcing the configured one.
+
+        A forced language token makes Whisper translate into that language, so
+        another player's English came out as Japanese when Japanese was set.
+        """
+        language, probability, all_probs = self._model.detect_language(audio)
+        if probability >= _LANGUAGE_CONFIDENCE or not hints:
+            return language, probability
+        scores = dict(all_probs)
+        best = max(hints, key=lambda code: scores.get(code, 0.0))
+        return best, scores.get(best, 0.0)
+
     @staticmethod
-    def _needs_english_retry(
-        transcript_source: str, language: str | None, text: str
-    ) -> bool:
-        return (
-            transcript_source == "speaker"
-            and language == "en"
-            and bool(_CJK_PATTERN.search(text))
-        )
+    def _is_hallucination(text: str) -> bool:
+        if _HALLUCINATION_FRAGMENTS.search(text):
+            return True
+        return _PUNCTUATION.sub("", text).lower() in _HALLUCINATION_LINES
 
     @staticmethod
     def _normalize_audio(

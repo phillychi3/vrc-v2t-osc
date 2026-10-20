@@ -15,6 +15,8 @@ SPEECH_MODELS = {
     "large-v3-turbo",
 }
 TRANSLATION_MODELS = {MODEL_ID}
+# Spoken/translated languages offered in the UI (electron languages.ts).
+SUPPORTED_LANGUAGES = {"zh", "en", "ja", "ko", "fr", "de", "es"}
 OVERLAY_ANCHORS = {"head", "leftHand", "rightHand"}
 # Interface languages; "auto" follows the operating system.
 UI_LANGUAGES = {"auto", "zh-TW", "zh-CN", "en", "ja"}
