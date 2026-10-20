@@ -25,7 +25,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install pydub==0.25.1 "audioop-lts==0.2.2; python_version >= '3.13'"
+      - run: python -m pip install numpy==2.2.4 av==16.1.0
       - run: python -m unittest tests.test_audio
 
   build:
