@@ -44,12 +44,20 @@ _MAX_SEGMENT_WAIT_SECONDS = 15.0
 _BEAM_SIZE = 5
 _TEMPERATURES = (0.0, 0.2, 0.4, 0.6)
 # Above this, trust Whisper's language detection even when it names a language
-# outside the configured pair. Short or quiet clips score lower, and then the
-# configured languages are more reliable than the raw top guess.
-_LANGUAGE_CONFIDENCE = 0.6
+# outside the configured pair. Short clips often score Mandarin as Japanese or
+# Cantonese around 0.6-0.7, and decoding with the wrong token garbles the text.
+_LANGUAGE_CONFIDENCE = 0.8
+# Detected languages folded into a configured one: Mandarin is routinely
+# detected as Cantonese, and decoding Cantonese as `zh` still yields Chinese.
+_LANGUAGE_ALIASES = {"yue": "zh"}
 # Steers Chinese output to Traditional characters with punctuation; Whisper
 # otherwise picks Simplified or Traditional per clip.
 _INITIAL_PROMPTS = {"zh": "以下是繁體中文的句子。"}
+# Each clip is a single Whisper window, so `condition_on_previous_text` never
+# carries anything across clips. The previous clip from the same source is
+# passed through the prompt instead while the conversation is still going.
+_CONTEXT_SECONDS = 10.0
+_CONTEXT_CHARS = 120
 # Whisper's training data was full of video captions, so silence and noise
 # decode to sign-off lines. Drop clips made of nothing else.
 _HALLUCINATION_FRAGMENTS = re.compile(
@@ -87,7 +95,8 @@ class _UtteranceBuffer:
         sample_rate: int,
         pre_roll_ms: int = 500,
         end_silence_ms: int = 800,
-        max_utterance_ms: int = 10_000,
+        # Whisper's window is 30s; a forced cut lands mid-word, so keep it rare.
+        max_utterance_ms: int = 15_000,
     ) -> None:
         self._pre_roll_limit = sample_rate * pre_roll_ms // 1000 * 2
         self._end_silence_samples = sample_rate * end_silence_ms // 1000
@@ -243,6 +252,8 @@ class VoiceService:
         self._vad_lock = threading.Lock()
         self._closed = threading.Event()
         self._segments: queue.Queue[Segment | None] = queue.Queue(maxsize=6)
+        # transcript source -> (text, language, finished at); transcriber only.
+        self._context: dict[str, tuple[str, str, float]] = {}
         self._sessions: dict[str, _CaptureSession] = {}
         self._model: Any = None
         self._vad_model: Any = None
@@ -629,12 +640,14 @@ class VoiceService:
                 timestamps = []
                 if len(rolling) >= rate * 3 // 10:
                     tensor = np.asarray(rolling, dtype=np.float32) / 32768.0
+                    # The window is only 0.5s, so silence length is counted by
+                    # _UtteranceBuffer, not here. A 150ms minimum still lets
+                    # one-syllable replies such as 「好」 start an utterance.
                     with self._vad_lock:
                         timestamps = self._get_speech_timestamps(
                             tensor,
-                            threshold=0.6,
-                            min_speech_duration_ms=300,
-                            min_silence_duration_ms=800,
+                            threshold=0.5,
+                            min_speech_duration_ms=150,
                         )
                 segment = utterance.feed(audio_data, len(samples), bool(timestamps))
                 if segment:
@@ -693,6 +706,7 @@ class VoiceService:
                     if not stale:
                         started_at = time.monotonic()
                         language, probability = self._choose_language(audio, hints)
+                        context = self._recent_context(transcript_source, language)
                         segments, _ = self._model.transcribe(
                             audio,
                             language=language,
@@ -701,7 +715,7 @@ class VoiceService:
                             beam_size=_BEAM_SIZE,
                             condition_on_previous_text=False,
                             without_timestamps=True,
-                            initial_prompt=_INITIAL_PROMPTS.get(language),
+                            initial_prompt=self._prompt(language, context),
                             vad_filter=False,  # Capture already applies built-in VAD.
                         )
                         # Inference is lazy: keep iteration inside the lock.
@@ -717,6 +731,16 @@ class VoiceService:
                 if self._is_hallucination(text):
                     logging.info("Dropped caption-like %s hallucination", transcript_source)
                     text = ""
+                elif context and self._repeats_context(text, context):
+                    # Silence or noise tends to echo the prompt back verbatim.
+                    logging.info("Dropped %s echo of previous text", transcript_source)
+                    text = ""
+                if text:
+                    self._context[transcript_source] = (
+                        text,
+                        language,
+                        time.monotonic(),
+                    )
                 logging.info(
                     "Speech source=%s language=%s (%.2f) audio=%.2fs queue=%.2fs "
                     "inference=%.2fs",
@@ -837,11 +861,46 @@ class VoiceService:
         another player's English came out as Japanese when Japanese was set.
         """
         language, probability, all_probs = self._model.detect_language(audio)
-        if probability >= _LANGUAGE_CONFIDENCE or not hints:
+        if not hints:
             return language, probability
-        scores = dict(all_probs)
+        scores: dict[str, float] = {}
+        for code, score in all_probs:
+            alias = _LANGUAGE_ALIASES.get(code)
+            if alias in hints:
+                code = alias
+            scores[code] = scores.get(code, 0.0) + score
+        top = max(scores, key=scores.__getitem__)
+        if top in hints or scores[top] >= _LANGUAGE_CONFIDENCE:
+            return top, scores[top]
         best = max(hints, key=lambda code: scores.get(code, 0.0))
         return best, scores.get(best, 0.0)
+
+    def _recent_context(self, transcript_source: str, language: str) -> str | None:
+        """The previous clip's text while the same speaker is still talking."""
+        entry = self._context.get(transcript_source)
+        if entry is None:
+            return None
+        text, previous_language, finished_at = entry
+        if (
+            previous_language != language
+            or time.monotonic() - finished_at > _CONTEXT_SECONDS
+        ):
+            return None
+        return text[-_CONTEXT_CHARS:]
+
+    @staticmethod
+    def _prompt(language: str, context: str | None) -> str | None:
+        parts = [part for part in (_INITIAL_PROMPTS.get(language), context) if part]
+        return "".join(parts) or None
+
+    @staticmethod
+    def _repeats_context(text: str, context: str) -> bool:
+        # Short replies such as 「好」 legitimately recur inside the last line.
+        normalized = _PUNCTUATION.sub("", text).lower()
+        return (
+            len(normalized) >= 4
+            and normalized in _PUNCTUATION.sub("", context).lower()
+        )
 
     @staticmethod
     def _is_hallucination(text: str) -> bool:

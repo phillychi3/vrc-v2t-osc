@@ -331,6 +331,63 @@ class VoiceAudioConversionTests(unittest.TestCase):
         self.assertEqual(service._language_hints("voice"), [])
         self.assertEqual(service._choose_language(None, []), ("ko", 0.4))
 
+    def test_mandarin_misdetected_as_japanese_or_cantonese_stays_chinese(self):
+        service = self.make_service(speaker_language="en")
+        service._model = Mock()
+        hints = service._language_hints("voice")
+
+        service._model.detect_language.return_value = (
+            "ja",
+            0.7,
+            [("ja", 0.7), ("zh", 0.2)],
+        )
+        self.assertEqual(service._choose_language(None, hints), ("zh", 0.2))
+
+        service._model.detect_language.return_value = (
+            "yue",
+            0.5,
+            [("yue", 0.5), ("zh", 0.3), ("en", 0.1)],
+        )
+        self.assertEqual(service._choose_language(None, hints), ("zh", 0.8))
+
+    def test_previous_clip_from_same_source_is_passed_as_context(self):
+        transcripts = []
+        service = self.make_service(
+            on_transcript=lambda text, source, language: transcripts.append(text)
+        )
+        service._model = Mock()
+        service._model.detect_language.return_value = ("zh", 0.9, [("zh", 0.9)])
+        service._model.transcribe.side_effect = [
+            (iter([SimpleNamespace(text="我們等一下去")]), None),
+            (iter([SimpleNamespace(text="那個地圖看看")]), None),
+            (iter([SimpleNamespace(text="那個地圖看看")]), None),
+            (iter([SimpleNamespace(text="好")]), None),
+        ]
+        for _ in range(4):
+            service._segments.put(("voice", "test", b"\0\0" * 1600, time.monotonic()))
+        service._segments.put(None)
+        with patch.object(service, "_is_session_active", return_value=True):
+            service._transcribe_loop()
+
+        prompts = [
+            call.kwargs["initial_prompt"]
+            for call in service._model.transcribe.call_args_list
+        ]
+        self.assertEqual(prompts[0], "以下是繁體中文的句子。")
+        self.assertEqual(prompts[1], "以下是繁體中文的句子。我們等一下去")
+        # The echoed third clip is dropped; a one-syllable reply is not.
+        self.assertEqual(transcripts, ["我們等一下去", "那個地圖看看", "好"])
+
+    def test_context_expires_and_does_not_cross_sources_or_languages(self):
+        service = self.make_service()
+        service._context["voice"] = ("上一句", "zh", 100.0)
+        with patch("backend.voice.time.monotonic", return_value=105.0):
+            self.assertEqual(service._recent_context("voice", "zh"), "上一句")
+            self.assertIsNone(service._recent_context("voice", "en"))
+            self.assertIsNone(service._recent_context("speaker", "zh"))
+        with patch("backend.voice.time.monotonic", return_value=200.0):
+            self.assertIsNone(service._recent_context("voice", "zh"))
+
     def test_drops_caption_hallucinations_only(self) -> None:
         for text in (
             "字幕由Amara.org社区提供",
