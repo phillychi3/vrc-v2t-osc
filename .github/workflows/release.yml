@@ -80,7 +80,7 @@ jobs:
           # The web installer downloads these assets from vrc2t/<tag>/ on R2, so
           # their names must stay exactly as the installer was compiled to expect.
           # The emotion model is not among them: it stays in its own folder, see
-          # scripts/emotion-asset.json and .github/workflows/emotion.yml.
+          # packaging/emotion-asset.json and .github/workflows/emotion.yml.
           test -f "VRC2T-${VERSION}-windows-x64-web-setup.exe"
           test -f "vrc2t-${VERSION}-x64.nsis.7z"
           test -f "vrc2t-backend-cpu-${VERSION}-x64.7z"

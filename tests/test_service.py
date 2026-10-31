@@ -613,23 +613,6 @@ class ServiceTests(unittest.TestCase):
 
         providers = service.handle(Request("providers", "translation.listProviders", {}))
         self.assertEqual(providers["providers"][0]["id"], "fake")  # type: ignore[index]
-        result = service.handle(
-            Request(
-                "translate",
-                "translation.translate",
-                {
-                    "provider": "fake",
-                    "text": "你好",
-                    "sourceLanguage": "zh",
-                    "targetLanguage": "en",
-                    "options": {},
-                    "context": {"utteranceId": "utt-1"},
-                },
-            )
-        )
-        self.assertEqual(result, {"jobId": "translation-1", "accepted": True})
-        self.assertEqual(self.events[-1]["event"], "translation.result")
-
         updated = service.handle(
             Request(
                 "translation-model",

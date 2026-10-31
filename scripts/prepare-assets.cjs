@@ -17,7 +17,7 @@ const BACKEND_ENTRY = process.env.VRC_BACKEND_ENTRY || 'vrc-v2t-backend.exe'
 
 // The backends change with every release, so they are packed here and uploaded
 // to that release's folder. The emotion model does not: it is pinned by
-// scripts/emotion-asset.json and published once per model revision, so it is
+// packaging/emotion-asset.json and published once per model revision, so it is
 // neither packed nor uploaded again. See EMOTION_MANIFEST below.
 const BACKENDS = [
 	{
@@ -35,7 +35,7 @@ const BACKENDS = [
 		entry: BACKEND_ENTRY
 	}
 ]
-const EMOTION_MANIFEST = path.join(__dirname, 'emotion-asset.json')
+const EMOTION_MANIFEST = path.join(__dirname, '..', 'packaging', 'emotion-asset.json')
 // Packing a local emotion directory instead of trusting the pinned archive is
 // only for the installer regression's stand-in model; a release never sets it.
 const EMOTION_SOURCE = process.env.VRC_EMOTION_MODEL_DIR

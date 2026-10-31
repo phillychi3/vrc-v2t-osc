@@ -1,7 +1,7 @@
 name: Emotion model asset
 
 # Runs once per model revision, not once per release. It exports the ONNX
-# classifier, packs the single archive scripts/emotion-asset.json pins and
+# classifier, packs the single archive packaging/emotion-asset.json pins and
 # uploads it to its own folder on Cloudflare R2
 # (https://cdn.cloudowo.com/vrc2t/<tag>/). Every later app release compiles the
 # installer against that same archive, so nothing here runs during a release.
@@ -50,7 +50,7 @@ jobs:
         run: |
           python - <<'PY' >> "$GITHUB_OUTPUT"
           import json, os
-          pin = json.load(open('scripts/emotion-asset.json'))
+          pin = json.load(open('packaging/emotion-asset.json'))
           for key in ('tag', 'name'):
               print(f'{key}={pin[key]}')
           PY
@@ -66,7 +66,7 @@ jobs:
           # replacement would break them; bump the pin instead.
           if aws s3api head-object --bucket "$R2_BUCKET" --key "vrc2t/$TAG/$NAME" --endpoint-url "$R2_ENDPOINT" > /dev/null 2>&1; then
             if [ "$REPLACE" != "true" ]; then
-              echo "::error::$NAME is already published under $TAG. Bump modelVersion, tag and name in scripts/emotion-asset.json, or re-run with replace enabled."
+              echo "::error::$NAME is already published under $TAG. Bump modelVersion, tag and name in packaging/emotion-asset.json, or re-run with replace enabled."
               exit 1
             fi
             echo "::warning::Replacing the published $NAME"
@@ -88,13 +88,13 @@ jobs:
         shell: bash
         run: |
           {
-            echo 'Commit `scripts/emotion-asset.json` with these measurements:'
+            echo 'Commit `packaging/emotion-asset.json` with these measurements:'
             echo '```json'
-            cat scripts/emotion-asset.json
+            cat packaging/emotion-asset.json
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: emotion-asset-manifest
-          path: scripts/emotion-asset.json
+          path: packaging/emotion-asset.json
           if-no-files-found: error

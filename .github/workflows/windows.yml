@@ -101,7 +101,7 @@ jobs:
           path: build/python-cu126/vrc-v2t-backend
       - name: Pack the backends as release assets
         # The emotion model is not packed here: the installer is compiled
-        # against the archive scripts/emotion-asset.json pins, published once.
+        # against the archive packaging/emotion-asset.json pins, published once.
         run: pnpm prepare:assets
       - name: Build web installer
         # The app package carries only Electron and the frontend; the

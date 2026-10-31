@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { BackendSettings, OverlaySettings } from '../shared/ipc.js'
-// A .ts specifier so the Node test runner can load this module directly.
+
 import { IDENTITY_BASIS, OVERLAY_PRESETS } from '../shared/overlay-presets.ts'
 import { isLanguagePreference } from '../shared/i18n-core.ts'
 
@@ -18,7 +18,10 @@ const DEFAULT_SETTINGS: BackendSettings = {
 		endpoint: 'http://127.0.0.1:5000',
 		apiKey: '',
 		deeplPlan: 'free',
-		deeplApiKey: ''
+		deeplApiKey: '',
+		geminiApiKey: '',
+		qwenEndpoint: 'wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime',
+		qwenApiKey: ''
 	},
 	osc: { enabled: true, host: '127.0.0.1', port: 9000 },
 	emotion: { enabled: false, parameter: '/avatar/parameters/v2t_sync_emo' },
@@ -72,7 +75,17 @@ export class SettingsStore {
 function migrate(value: unknown): unknown {
 	if (!isRecord(value) || value.schemaVersion !== 1) return value
 	if (!('ui' in value)) value = { ...value, ui: structuredClone(DEFAULT_SETTINGS.ui) }
-	return migrateOverlay(value as Record<string, unknown>)
+	return migrateOverlay(migrateTranslation(value as Record<string, unknown>))
+}
+
+function migrateTranslation(value: Record<string, unknown>): Record<string, unknown> {
+	const translation = value.translation
+	if (!isRecord(translation) || 'geminiApiKey' in translation) return value
+	const { geminiApiKey, qwenEndpoint, qwenApiKey } = DEFAULT_SETTINGS.translation
+	return {
+		...value,
+		translation: { ...translation, geminiApiKey, qwenEndpoint, qwenApiKey }
+	}
 }
 
 function migrateOverlay(value: Record<string, unknown>): unknown {
@@ -122,11 +135,16 @@ function isSettings(value: unknown): value is BackendSettings {
 			'endpoint',
 			'apiKey',
 			'deeplPlan',
-			'deeplApiKey'
+			'deeplApiKey',
+			'geminiApiKey',
+			'qwenEndpoint',
+			'qwenApiKey'
 		]) &&
 		typeof translation.enabled === 'boolean' &&
 		typeof translation.provider === 'string' &&
-		['onnx', 'libretranslate', 'deepl'].includes(translation.provider) &&
+		['onnx', 'libretranslate', 'deepl', 'gemini-live', 'qwen-live'].includes(
+			translation.provider
+		) &&
 		typeof translation.model === 'string' &&
 		translation.model === DEFAULT_SETTINGS.translation.model &&
 		typeof translation.sourceLanguage === 'string' &&
@@ -138,6 +156,10 @@ function isSettings(value: unknown): value is BackendSettings {
 		typeof translation.apiKey === 'string' &&
 		(translation.deeplPlan === 'free' || translation.deeplPlan === 'pro') &&
 		typeof translation.deeplApiKey === 'string' &&
+		typeof translation.geminiApiKey === 'string' &&
+		typeof translation.qwenEndpoint === 'string' &&
+		translation.qwenEndpoint.trim().length > 0 &&
+		typeof translation.qwenApiKey === 'string' &&
 		hasExactKeys(osc, ['enabled', 'host', 'port']) &&
 		typeof osc.enabled === 'boolean' &&
 		typeof osc.host === 'string' &&

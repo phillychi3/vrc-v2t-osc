@@ -29,6 +29,8 @@ ModelStatusHandler = Callable[[str, str, str | None], None]
 RecordingStateHandler = Callable[[str, str], None]
 # (text, source, detected Whisper language code)
 TranscriptHandler = Callable[[str, str, str | None], None]
+# (16 kHz mono PCM16 utterance, source)
+SegmentHandler = Callable[[bytes, str], None]
 ErrorHandler = Callable[[str], None]
 Segment = tuple[str, str, bytes, float]
 _FRAMES_PER_BUFFER = 1024
@@ -236,7 +238,11 @@ class VoiceService:
         on_transcript: TranscriptHandler,
         on_error: ErrorHandler,
         speaker_language: str | None = None,
+        on_segment: SegmentHandler | None = None,
     ) -> None:
+        # With a segment handler, a speech translation service recognizes the
+        # audio itself: Whisper is never loaded and only the VAD runs here.
+        self._on_segment = on_segment
         self._model_name = model_name
         self._languages: dict[str, str | None] = {
             "voice": self._normalize_language(language),
@@ -282,9 +288,13 @@ class VoiceService:
         self._on_model_status("loading", None)
         try:
             configure_native_runtime()
-            import ctranslate2
-            from faster_whisper import WhisperModel
             from faster_whisper.vad import get_speech_timestamps, get_vad_model
+
+            if self._on_segment is None:
+                import ctranslate2
+                from faster_whisper import WhisperModel
+            else:
+                ctranslate2 = WhisperModel = None
         except Exception as exc:
             logging.exception("Failed to load speech runtime")
             if not self._closed.is_set():
@@ -520,7 +530,7 @@ class VoiceService:
 
             threads = min(4, max(1, (os.cpu_count() or 2) // 2))
             device = "cpu"
-            if backend_variant() != "cpu":
+            if whisper_model is not None and backend_variant() != "cpu":
                 try:
                     if ctranslate2.get_cuda_device_count() > 0:
                         device = "cuda"
@@ -554,16 +564,20 @@ class VoiceService:
                 return candidate, name
 
             with contextlib.redirect_stdout(sys.stderr):
-                try:
-                    model, model_name = create_model(device)
-                except (RuntimeError, OSError):
-                    if device != "cuda":
-                        raise
-                    logging.warning(
-                        "CUDA initialization failed; falling back to CPU", exc_info=True
-                    )
-                    device = "cpu"
-                    model, model_name = create_model(device)
+                if whisper_model is None:
+                    model, model_name = None, "none (speech translation service)"
+                else:
+                    try:
+                        model, model_name = create_model(device)
+                    except (RuntimeError, OSError):
+                        if device != "cuda":
+                            raise
+                        logging.warning(
+                            "CUDA initialization failed; falling back to CPU",
+                            exc_info=True,
+                        )
+                        device = "cpu"
+                        model, model_name = create_model(device)
                 vad_model = get_vad_model()
                 vad_model(np.zeros(512, dtype=np.float32))
             if self._closed.is_set():
@@ -694,6 +708,11 @@ class VoiceService:
                     return
                 transcript_source, session_id, segment, queued_at = item
                 if not self._is_session_active(transcript_source, session_id):
+                    continue
+                if self._on_segment is not None:
+                    with self._lock:
+                        if self._is_session_active(transcript_source, session_id):
+                            self._on_segment(segment, transcript_source)
                     continue
                 audio = (
                     np.frombuffer(segment, dtype=np.int16).astype(np.float32) / 32768.0

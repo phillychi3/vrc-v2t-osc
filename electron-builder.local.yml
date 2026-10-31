@@ -1,0 +1,29 @@
+# Local Windows build for `pnpm dist:local`. Unlike electron-builder.yml, which
+# makes the web installer that downloads its backend from the release server,
+# this bundles the CPU backend into an ordinary offline installer, so a build
+# of an unpublished version installs and runs on its own.
+# The optional emotion model is not included; the app runs without it.
+appId: com.phillychi3.vrc-v2t-osc
+productName: VRC2T
+directories:
+  output: release/local
+  buildResources: icons
+files:
+  - build/electron/**/*
+  - build/renderer/**/*
+  - package.json
+asar: true
+# The packaged app starts resources/backend/vrc-v2t-backend.exe.
+extraResources:
+  - from: build/python-cpu/vrc-v2t-backend
+    to: backend
+win:
+  artifactName: VRC2T-${version}-windows-${arch}-local-setup.${ext}
+  icon: icons/windows/icon.ico
+  target: nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerLanguages:
+    - zh_TW
+    - en_US

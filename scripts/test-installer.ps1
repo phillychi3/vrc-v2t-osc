@@ -78,7 +78,7 @@ $archiveOf = @{}
 foreach ($asset in $assets.assets) { $archiveOf[$asset.id] = $asset.name }
 
 $registryKey = 'Software\VRC2T-InstallerTest-' + [guid]::NewGuid()
-$include = Join-Path $PSScriptRoot 'installer.nsh'
+$include = Join-Path $projectRoot 'packaging/installer.nsh'
 $harness = @'
 Unicode true
 RequestExecutionLevel user

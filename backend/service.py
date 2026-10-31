@@ -62,9 +62,15 @@ class TranslationProtocol(Protocol):
         target_language: str,
         options: dict[str, Any] | None = None,
         context: dict[str, Any] | None = None,
+        audio: bytes | None = None,
     ) -> str | None: ...
     def close(self) -> None: ...
     def invalidate(self, provider_id: str) -> None: ...
+
+
+# Providers that recognize and translate the recorded speech themselves, so
+# Whisper is not used while one of them is translating.
+SPEECH_TRANSLATION_PROVIDERS = {"gemini-live", "qwen-live"}
 
 
 TranslationFactory = Callable[..., TranslationProtocol]
@@ -149,7 +155,6 @@ class BackendService:
             "recording.start": self._start_recording,
             "recording.stop": self._stop_recording,
             "translation.listProviders": self._list_translation_providers,
-            "translation.translate": self._translate,
             "overlay.show": self._show_overlay,
             "overlay.hide": self._hide_overlay,
             "overlay.calibrate": self._calibrate_overlay,
@@ -327,46 +332,6 @@ class BackendService:
             return {"providers": []}
         return {"providers": self._translation.providers()}
 
-    def _translate(self, params: dict[str, Any]) -> object:
-        translation = self._translation
-        if translation is None:
-            raise ServiceError(
-                "TRANSLATION_UNAVAILABLE",
-                t("backend.translationUnavailable"),
-                retryable=True,
-            )
-        provider = self._required_string(params, "provider")
-        text = self._required_string(params, "text")
-        source_language = self._required_string(params, "sourceLanguage")
-        target_language = self._required_string(params, "targetLanguage")
-        options = params.get("options", {})
-        context = params.get("context", {})
-        if not isinstance(options, dict) or not isinstance(context, dict):
-            raise ServiceError("INVALID_PARAMS", "options 與 context 必須是物件")
-        if provider == "onnx":
-            options = {**options, "model": self._settings["translation"]["model"]}
-        elif provider == "deepl":
-            options = {
-                **options,
-                "plan": self._settings["translation"]["deeplPlan"],
-                "apiKey": self._settings["translation"]["deeplApiKey"],
-            }
-        job_id = translation.submit(
-            provider_id=provider,
-            text=text,
-            source_language=source_language,
-            target_language=target_language,
-            options=options,
-            context=context,
-        )
-        if job_id is None:
-            raise ServiceError(
-                "TRANSLATION_OVERLOADED",
-                t("backend.translationBusy"),
-                retryable=True,
-            )
-        return {"jobId": job_id, "accepted": True}
-
     def _overlay_image(self, params: dict[str, Any]) -> tuple[OverlayProtocol, str]:
         overlay = self._overlay
         if overlay is None:
@@ -425,11 +390,22 @@ class BackendService:
         ):
             raise ServiceError("RECORDING_ACTIVE", t("backend.stopSpeakerForDevice"))
         speech_model_changed = candidate["speech"]["model"] != old_speech_model
-        if speech_model_changed and any(
+        recording = any(
             state not in {"idle", "error"} for state in self._recordings.values()
-        ):
+        )
+        if speech_model_changed and recording:
             raise ServiceError("RECORDING_ACTIVE", t("backend.stopRecordingForModel"))
-        if speech_model_changed and self._models["speech"]["status"] == "loading":
+        # Switching between Whisper and a speech translation service rebuilds
+        # the voice pipeline, just like changing the speech model.
+        recognizer_changed = self._speech_translation(
+            candidate
+        ) != self._speech_translation(self._settings)
+        if recognizer_changed and recording:
+            raise ServiceError(
+                "RECORDING_ACTIVE", t("backend.stopRecordingForSpeechService")
+            )
+        voice_changed = speech_model_changed or recognizer_changed
+        if voice_changed and self._models["speech"]["status"] == "loading":
             raise ServiceError(
                 "MODEL_LOADING",
                 t("backend.modelLoading"),
@@ -437,7 +413,7 @@ class BackendService:
             )
         self._settings = candidate
         i18n.configure(candidate["ui"]["language"])
-        if speech_model_changed and self._voice_factory is not None:
+        if voice_changed and self._voice_factory is not None:
             old_voice, self._voice = self._voice, None
             if old_voice is not None:
                 old_voice.close()
@@ -533,6 +509,11 @@ class BackendService:
             on_transcript=self._on_voice_transcript,
             on_error=self._on_voice_error,
             speaker_language=self._settings["translation"]["targetLanguage"],
+            on_segment=(
+                self._on_voice_segment
+                if self._speech_translation(self._settings)
+                else None
+            ),
         )
 
     def _on_speech_model_status(self, status: str, device: str | None) -> None:
@@ -610,6 +591,96 @@ class BackendService:
         ):
             emotion.submit(utterance_id, text)
 
+    def _on_voice_segment(self, audio: bytes, source: str) -> None:
+        """Sends an utterance to the speech translation service in place of Whisper."""
+        utterance_id = str(uuid.uuid4())
+        with self._lock:
+            if self._lifecycle != "ready" or source in self._stopped_sources:
+                return
+            generation = self._recording_generations[source]
+        settings = self._settings["translation"]
+        if source == "speaker":
+            source_language = settings["targetLanguage"]
+            target_language = self._local_language()
+        else:
+            source_language = settings["sourceLanguage"]
+            target_language = settings["targetLanguage"]
+        options: dict[str, Any] = {}
+        if settings["provider"] == "gemini-live":
+            options = {"apiKey": settings["geminiApiKey"]}
+        elif settings["provider"] == "qwen-live":
+            options = {
+                "endpoint": settings["qwenEndpoint"],
+                "apiKey": settings["qwenApiKey"],
+            }
+        translation = self._translation
+        job_id = None
+        if translation is not None:
+            job_id = translation.submit(
+                provider_id=settings["provider"],
+                text="",
+                source_language=source_language,
+                target_language=target_language,
+                options=options,
+                context={
+                    "utteranceId": utterance_id,
+                    "source": source,
+                    "sendToOsc": source == "voice",
+                    "recordingGeneration": generation,
+                    "speech": True,
+                },
+                audio=audio,
+            )
+        if job_id is None:
+            self._emit(
+                "translation.error",
+                {
+                    "jobId": "",
+                    "message": t("backend.translationBusySpeechDropped"),
+                    "context": {"utteranceId": utterance_id},
+                },
+            )
+
+    def _on_speech_translation(
+        self, result: dict[str, Any], context: dict[str, Any]
+    ) -> None:
+        """Publishes what the service heard, then its translation."""
+        utterance_id = context.get("utteranceId")
+        source = context.get("source")
+        text = result.get("text")
+        if not (
+            isinstance(utterance_id, str)
+            and isinstance(source, str)
+            and isinstance(text, str)
+            and text.strip()
+        ):
+            return
+        with self._lock:
+            if not self._translation_context_active(context):
+                return
+            if source == "voice":
+                self._latest_voice_utterance_id = utterance_id
+                self._latest_voice_source = source
+                self._latest_voice_generation = context["recordingGeneration"]
+        heard = result.get("sourceText")
+        # Without a transcript of what was said, show the translation instead.
+        original = heard if isinstance(heard, str) and heard else text
+        self._emit(
+            "transcript.final",
+            {"utteranceId": utterance_id, "text": original, "source": source},
+        )
+        self._emit("translation.result", result)
+        if source != "voice":
+            return
+        with self._lock:
+            if self._translation_context_active(context):
+                self._send_transcript_to_osc(
+                    utterance_id, text, source, context["recordingGeneration"]
+                )
+        emotion = self._emotion
+        if self._settings["emotion"]["enabled"] and emotion is not None:
+            emotion.submit(utterance_id, original)
+
     def _on_emotion_model_status(self, status: str, device: str | None) -> None:
         with self._lock:
             self._models["emotion"] = {"status": status, "device": device}
@@ -669,8 +740,11 @@ class BackendService:
         )
 
     def _on_translation_result(self, result: dict[str, Any]) -> None:
-        self._emit("translation.result", result)
         context = result.get("context")
+        if isinstance(context, dict) and context.get("speech"):
+            self._on_speech_translation(result, context)
+            return
+        self._emit("translation.result", result)
         if not isinstance(context, dict) or not context.get("sendToOsc"):
             return
         utterance_id = context.get("utteranceId")
@@ -721,6 +795,15 @@ class BackendService:
             and isinstance(source, str)
             and source in self._recording_generations
             and context.get("recordingGeneration") == self._recording_generations[source]
+        )
+
+    @staticmethod
+    def _speech_translation(settings: dict[str, Any]) -> bool:
+        """Whether a speech translation service replaces Whisper."""
+        translation = settings["translation"]
+        return (
+            translation["enabled"]
+            and translation["provider"] in SPEECH_TRANSLATION_PROVIDERS
         )
 
     def _local_language(self) -> str:

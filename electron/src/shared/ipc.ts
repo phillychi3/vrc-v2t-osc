@@ -8,7 +8,6 @@ export const IpcChannel = {
 	BackendStartRecording: 'backend:start-recording',
 	BackendStopRecording: 'backend:stop-recording',
 	BackendListTranslationProviders: 'backend:list-translation-providers',
-	BackendTranslate: 'backend:translate',
 	BackendUpdateSettings: 'backend:update-settings',
 	BackendEvent: 'backend:event',
 	OverlayPreview: 'overlay:preview',
@@ -52,6 +51,9 @@ export interface BackendSettings {
 		apiKey: string
 		deeplPlan: 'free' | 'pro'
 		deeplApiKey: string
+		geminiApiKey: string
+		qwenEndpoint: string
+		qwenApiKey: string
 	}
 	osc: { enabled: boolean; host: string; port: number }
 	emotion: { enabled: boolean; parameter: string }
@@ -117,15 +119,8 @@ export interface TranslationProviderInfo {
 	id: string
 	label: string
 	local: boolean
-}
-
-export interface TranslationRequest {
-	provider: string
-	text: string
-	sourceLanguage: string
-	targetLanguage: string
-	options?: Record<string, unknown>
-	context?: Record<string, unknown>
+	/** Translates the recorded speech itself, so typed text can't use it. */
+	audio?: boolean
 }
 
 export interface BackendState {
@@ -191,10 +186,6 @@ export interface BackendRequestMap {
 		params: Record<string, never>
 		result: { providers: TranslationProviderInfo[] }
 	}
-	'translation.translate': {
-		params: TranslationRequest
-		result: { jobId: string; accepted: true }
-	}
 	'overlay.show': { params: { path: string }; result: { accepted: true } }
 	'overlay.hide': { params: Record<string, never>; result: { accepted: true } }
 	'overlay.calibrate': {
@@ -222,7 +213,6 @@ export interface RendererApi {
 		) => Promise<{ state: BackendState['recording'] }>
 		stopRecording: (source: RecordingSource) => Promise<{ state: BackendState['recording'] }>
 		listTranslationProviders: () => Promise<{ providers: TranslationProviderInfo[] }>
-		translate: (request: TranslationRequest) => Promise<{ jobId: string; accepted: true }>
 		sendText: (text: string) => Promise<{ utteranceId: string; accepted: boolean }>
 		updateSettings: (patch: BackendSettingsPatch) => Promise<{ settings: BackendSettings }>
 		onEvent: (listener: (event: BackendEvent) => void) => () => void

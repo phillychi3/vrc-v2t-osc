@@ -2,7 +2,7 @@
 // Pack the exported emotion model into the one archive every release points at.
 //
 // This runs once per model revision, not once per release: the archive is
-// published under its own folder and scripts/emotion-asset.json is committed with
+// published under its own folder and packaging/emotion-asset.json is committed with
 // the measurements the installer is compiled against. Normal builds read that
 // manifest and neither export nor pack the model again.
 const { createRequire } = require('node:module')

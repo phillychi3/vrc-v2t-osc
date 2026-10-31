@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "vrc2t"
-version = "0.1.0"
+version = "0.1.1"
 description = ""
 authors = ["phillychi3 <phillychi3@gmail.com>"]
 readme = "README.md"
@@ -21,6 +21,7 @@ sentencepiece = "0.2.1"
 pydub = "0.25.1"
 audioop-lts = {version = "0.2.2", markers = "python_version >= \"3.13\""}
 openvr = "2.12.1401"
+websockets = "15.0.1"
 
 [tool.poetry.group.dev.dependencies]
 pyinstaller = {version = "^6.22.2", python = ">=3.12,<3.16"}

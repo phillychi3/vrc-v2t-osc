@@ -1,5 +1,5 @@
 import { BrowserWindow, app, ipcMain } from 'electron'
-import type { AppInfo, Platform, TranslationRequest } from '../shared/ipc.js'
+import type { AppInfo, Platform } from '../shared/ipc.js'
 import { IpcChannel } from '../shared/ipc.js'
 import { isDev, devServerUrl } from './env.js'
 import { getMainWindow } from './window.js'
@@ -8,9 +8,6 @@ import { isTrustedRendererUrl } from './security-policy.js'
 import type { BackendProcess } from './backend-process.js'
 import type { SettingsStore } from './settings-store.js'
 
-// Importing and warming the speech models can temporarily starve Python's
-// command loop. These operations are safe to wait for and must not report a
-// false failure while the backend is still making progress.
 const MODEL_WARMUP_REQUEST_TIMEOUT_MS = 120_000
 
 function windowOf(event: Electron.IpcMainEvent): BrowserWindow | null {
@@ -88,10 +85,6 @@ export function registerIpcHandlers(
 	handle(IpcChannel.BackendListTranslationProviders, () =>
 		backend.request('translation.listProviders', {}, MODEL_WARMUP_REQUEST_TIMEOUT_MS)
 	)
-	handle(IpcChannel.BackendTranslate, (_event, request: unknown) => {
-		if (!isTranslationRequest(request)) throw new TypeError('翻譯要求必須是物件')
-		return backend.request('translation.translate', request, MODEL_WARMUP_REQUEST_TIMEOUT_MS)
-	})
 	handle(IpcChannel.BackendSendText, (_event, text: unknown) => {
 		if (typeof text !== 'string') throw new TypeError('text 必須是字串')
 		return backend.request('text.send', { text })
@@ -121,20 +114,4 @@ export function registerIpcHandlers(
 	})
 
 	ipcMain.on(IpcChannel.WindowClose, (event) => windowOf(event)?.close())
-}
-
-function isTranslationRequest(value: unknown): value is TranslationRequest {
-	if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-	const request = value as Record<string, unknown>
-	return (
-		['provider', 'text', 'sourceLanguage', 'targetLanguage'].every(
-			(key) => typeof request[key] === 'string' && Boolean((request[key] as string).trim())
-		) &&
-		(request.options === undefined || isRecord(request.options)) &&
-		(request.context === undefined || isRecord(request.context))
-	)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

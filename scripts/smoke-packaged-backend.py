@@ -98,6 +98,8 @@ def main() -> int:
         "onnx",
         "libretranslate",
         "deepl",
+        "gemini-live",
+        "qwen-live",
     }
     assert responses["stop"]["result"] == {"state": "stopped"}
     print(f"packaged backend smoke test passed: {executable}")

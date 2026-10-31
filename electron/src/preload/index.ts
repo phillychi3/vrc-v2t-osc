@@ -2,11 +2,6 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { AppInfo, BackendEvent, BackendState, RendererApi } from '../shared/ipc.js'
 import { IpcChannel } from '../shared/ipc.js'
 
-/**
- * The only surface the renderer gets. Everything is explicit — no generic
- * `invoke(channel, ...args)` escape hatch, so the renderer cannot reach a
- * channel that is not listed here.
- */
 const api: RendererApi = {
 	getAppInfo: () => ipcRenderer.invoke(IpcChannel.AppInfo) as Promise<AppInfo>,
 	backend: {
@@ -22,7 +17,6 @@ const api: RendererApi = {
 			ipcRenderer.invoke(IpcChannel.BackendStartRecording, deviceId, source),
 		stopRecording: (source) => ipcRenderer.invoke(IpcChannel.BackendStopRecording, source),
 		listTranslationProviders: () => ipcRenderer.invoke(IpcChannel.BackendListTranslationProviders),
-		translate: (request) => ipcRenderer.invoke(IpcChannel.BackendTranslate, request),
 		sendText: (text) => ipcRenderer.invoke(IpcChannel.BackendSendText, text),
 		updateSettings: (patch) => ipcRenderer.invoke(IpcChannel.BackendUpdateSettings, patch),
 		onEvent: (listener) => {

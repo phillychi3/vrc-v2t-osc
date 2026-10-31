@@ -117,6 +117,9 @@
 	let translationEndpoint = $state('http://127.0.0.1:5000')
 	let translationApiKey = $state('')
 	let deeplApiKey = $state('')
+	let geminiApiKey = $state('')
+	let qwenEndpoint = $state('')
+	let qwenApiKey = $state('')
 
 	$effect(() => {
 		if (!settings) return
@@ -126,9 +129,21 @@
 		translationEndpoint = settings.translation.endpoint
 		translationApiKey = settings.translation.apiKey
 		deeplApiKey = settings.translation.deeplApiKey
+		geminiApiKey = settings.translation.geminiApiKey
+		qwenEndpoint = settings.translation.qwenEndpoint
+		qwenApiKey = settings.translation.qwenApiKey
 	})
 
 	const translation = $derived(settings?.translation)
+	// These services recognize the speech themselves; Whisper isn't loaded.
+	const speechTranslation = $derived(
+		Boolean(
+			translation?.enabled &&
+			translationProviders.some(
+				(provider) => provider.id === translation.provider && provider.audio
+			)
+		)
+	)
 	const providerOptions = $derived(
 		translationProviders.map((provider) => ({
 			value: provider.id,
@@ -266,6 +281,9 @@
 				<p class="field-help">
 					{speechModelStatus === 'loading' ? $t('speech.loading') : $t('speech.help')}
 				</p>
+				{#if speechTranslation}
+					<p class="field-help">{$t('speech.liveNote')}</p>
+				{/if}
 			</section>
 
 			<section id="settings-translation" class="settings-card">
@@ -411,6 +429,53 @@
 						{@render saveButton(
 							$t('translation.saveKey'),
 							() => void updateTranslation({ deeplApiKey })
+						)}
+					{/if}
+
+					{#if translation?.provider === 'gemini-live'}
+						<div>
+							<label class="field-label" for="gemini-api-key">{$t('translation.geminiKey')}</label>
+							<input
+								id="gemini-api-key"
+								type="password"
+								autocomplete="off"
+								bind:value={geminiApiKey}
+								class="field-control font-mono text-sm"
+							/>
+							<p class="field-help">{$t('translation.liveHelp')}</p>
+						</div>
+						{@render saveButton(
+							$t('translation.saveKey'),
+							() => void updateTranslation({ geminiApiKey })
+						)}
+					{/if}
+
+					{#if translation?.provider === 'qwen-live'}
+						<div class="grid gap-4 md:grid-cols-2">
+							<div>
+								<label class="field-label" for="qwen-endpoint">{$t('translation.endpoint')}</label>
+								<input
+									id="qwen-endpoint"
+									bind:value={qwenEndpoint}
+									class="field-control font-mono text-sm"
+								/>
+							</div>
+							<div>
+								<label class="field-label" for="qwen-api-key">{$t('translation.qwenKey')}</label>
+								<input
+									id="qwen-api-key"
+									type="password"
+									autocomplete="off"
+									bind:value={qwenApiKey}
+									class="field-control font-mono text-sm"
+								/>
+							</div>
+						</div>
+						<p class="field-help">{$t('translation.qwenHelp')}</p>
+						<p class="field-help">{$t('translation.liveHelp')}</p>
+						{@render saveButton(
+							$t('translation.saveConnection'),
+							() => void updateTranslation({ qwenEndpoint, qwenApiKey })
 						)}
 					{/if}
 				</div>

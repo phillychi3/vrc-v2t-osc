@@ -25,7 +25,7 @@ if (-not (Test-Path -LiteralPath $packagePython)) {
 }
 
 & $packagePython -m pip --no-input --keyring-provider disabled install --disable-pip-version-check --no-cache-dir `
-    -r (Join-Path $PSScriptRoot 'requirements-runtime.txt') 'pyinstaller==6.22.2'
+    -r (Join-Path $projectRoot 'packaging/requirements-runtime.txt') 'pyinstaller==6.22.2'
 if ($LASTEXITCODE -ne 0) {
     throw "Backend dependency installation failed with exit code $LASTEXITCODE"
 }

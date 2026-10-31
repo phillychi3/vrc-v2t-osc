@@ -8,8 +8,7 @@ import type {
 	BackendState,
 	RecordingSource,
 	RecordingState,
-	TranslationProviderInfo,
-	TranslationRequest
+	TranslationProviderInfo
 } from '$shared/ipc'
 import type { MessageKey } from '$shared/i18n'
 
@@ -73,10 +72,6 @@ export const backend = {
 		[state, failed, restarting],
 		([$state, $failed, $restarting]) => $state?.backend === 'ready' && !$failed && !$restarting
 	),
-	clearTranscripts(): void {
-		transcripts.set([])
-	},
-
 	dismissError(): void {
 		clearError()
 	},
@@ -150,34 +145,6 @@ export const backend = {
 			const result = await window.api?.backend.listTranslationProviders()
 			translationProviders.set(result?.providers ?? [])
 			clearError()
-		} catch (reason) {
-			error.set(messageOf(reason))
-			throw reason
-		}
-	},
-
-	async translate(text: string, context: Record<string, unknown> = {}): Promise<string> {
-		const current = get(state)
-		if (!current) throw new Error(message('error.notConnected'))
-		const settings = current.settings.translation
-		if (!settings.enabled) throw new Error(message('error.translationDisabled'))
-		let options: TranslationRequest['options'] = { model: settings.model }
-		if (settings.provider === 'libretranslate')
-			options = { endpoint: settings.endpoint, apiKey: settings.apiKey }
-		else if (settings.provider === 'deepl')
-			options = { plan: settings.deeplPlan, apiKey: settings.deeplApiKey }
-		try {
-			const result = await window.api?.backend.translate({
-				provider: settings.provider,
-				text,
-				sourceLanguage: settings.sourceLanguage,
-				targetLanguage: settings.targetLanguage,
-				options,
-				context
-			})
-			if (!result) throw new Error(message('error.bridgeUnavailable'))
-			clearError()
-			return result.jobId
 		} catch (reason) {
 			error.set(messageOf(reason))
 			throw reason

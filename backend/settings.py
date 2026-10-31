@@ -20,6 +20,8 @@ SUPPORTED_LANGUAGES = {"zh", "en", "ja", "ko", "fr", "de", "es"}
 OVERLAY_ANCHORS = {"head", "leftHand", "rightHand"}
 # Interface languages; "auto" follows the operating system.
 UI_LANGUAGES = {"auto", "zh-TW", "zh-CN", "en", "ja"}
+# Qwen LiveTranslate realtime API, international (Singapore) region.
+QWEN_ENDPOINT = "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime"
 
 
 DEFAULT_SETTINGS: dict[str, Any] = {
@@ -40,6 +42,9 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "apiKey": "",
         "deeplPlan": "free",
         "deeplApiKey": "",
+        "geminiApiKey": "",
+        "qwenEndpoint": QWEN_ENDPOINT,
+        "qwenApiKey": "",
     },
     "osc": {"enabled": True, "host": "127.0.0.1", "port": 9000},
     "emotion": {
@@ -81,6 +86,9 @@ _ALLOWED_KEYS = {
         "apiKey",
         "deeplPlan",
         "deeplApiKey",
+        "geminiApiKey",
+        "qwenEndpoint",
+        "qwenApiKey",
     },
     "osc": {"enabled", "host", "port"},
     "emotion": {"enabled", "parameter"},
@@ -182,6 +190,11 @@ def _validate_values(settings: dict[str, Any]) -> None:
         raise SettingsError("translation.deeplPlan 必須是 free 或 pro")
     if not isinstance(translation["deeplApiKey"], str):
         raise SettingsError("translation.deeplApiKey 必須是字串")
+    if not isinstance(translation["geminiApiKey"], str):
+        raise SettingsError("translation.geminiApiKey 必須是字串")
+    _require_string(translation["qwenEndpoint"], "translation.qwenEndpoint")
+    if not isinstance(translation["qwenApiKey"], str):
+        raise SettingsError("translation.qwenApiKey 必須是字串")
     _require_bool(osc["enabled"], "osc.enabled")
     _require_string(osc["host"], "osc.host")
     if isinstance(osc["port"], bool) or not isinstance(osc["port"], int):
