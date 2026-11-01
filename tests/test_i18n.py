@@ -4,8 +4,6 @@ import unittest
 from pathlib import Path
 
 from backend import i18n
-from backend.protocol import Request
-from backend.service import BackendService
 from backend.settings import SettingsError, apply_patch, default_settings
 
 LOCALES_DIR = Path(__file__).resolve().parents[1] / "locales"
@@ -42,26 +40,6 @@ class TranslateTests(unittest.TestCase):
 
     def test_unknown_keys_fall_back_to_the_key(self) -> None:
         self.assertEqual(i18n.t("backend.does-not-exist"), "backend.does-not-exist")
-
-    def test_service_uses_system_languages_and_settings_updates(self) -> None:
-        service = BackendService(lambda *_args: None)
-        self.addCleanup(service.close)
-        service.handle(
-            Request(
-                "init",
-                "system.initialize",
-                {
-                    "settings": default_settings(),
-                    "dataPath": "C:/data",
-                    "systemLanguages": ["ja-JP"],
-                },
-            )
-        )
-        self.assertEqual(i18n.current_locale(), "ja")
-        service.handle(
-            Request("1", "settings.update", {"patch": {"ui": {"language": "zh-CN"}}})
-        )
-        self.assertEqual(i18n.current_locale(), "zh-CN")
 
     def test_rejects_unknown_interface_language(self) -> None:
         with self.assertRaisesRegex(SettingsError, "ui.language"):

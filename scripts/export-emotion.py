@@ -1,9 +1,3 @@
-"""Build-time only: export and validate Chinese-Emotion-Small for CPU ONNX.
-
-Run in an isolated export environment containing torch, transformers, onnx and
-onnxruntime. None of torch/onnx/export tooling belongs in the runtime environment.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -33,8 +27,13 @@ SAMPLES = [
 def export(output: Path, *, local_files_only: bool) -> None:
     import numpy as np
     import onnxruntime as ort
-    import torch
-    from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+    # torch is only installed for the export, not in the app environment.
+    import torch  # pyright: ignore[reportMissingImports]
+    from transformers.models.auto.modeling_auto import (
+        AutoModelForSequenceClassification,
+    )
+    from transformers.models.auto.tokenization_auto import AutoTokenizer
 
     output.mkdir(parents=True, exist_ok=True)
     tokenizer = AutoTokenizer.from_pretrained(
@@ -94,13 +93,15 @@ def export(output: Path, *, local_files_only: bool) -> None:
             )
             with torch.no_grad():
                 expected = model(**encoded).logits.numpy()
-            actual = session.run(
-                ["logits"],
-                {
-                    "input_ids": encoded["input_ids"].numpy(),
-                    "attention_mask": encoded["attention_mask"].numpy(),
-                },
-            )[0]
+            actual = np.asarray(
+                session.run(
+                    ["logits"],
+                    {
+                        "input_ids": encoded["input_ids"].numpy(),
+                        "attention_mask": encoded["attention_mask"].numpy(),
+                    },
+                )[0]
+            )
             if not np.isfinite(actual).all() or actual.shape != (1, 8):
                 raise RuntimeError("Invalid ONNX classifier output")
             if expected.argmax() != actual.argmax():

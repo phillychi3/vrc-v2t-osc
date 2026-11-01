@@ -1,7 +1,7 @@
 {
 	"name": "vrc2t",
 	"private": true,
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"type": "module",
 	"main": "build/electron/main.cjs",
 	"packageManager": "pnpm@12.16.1",

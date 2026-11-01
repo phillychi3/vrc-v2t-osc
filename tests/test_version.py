@@ -8,6 +8,7 @@ import unittest
 spec = importlib.util.spec_from_file_location(
     "sync_version", Path(__file__).resolve().parents[1] / "scripts" / "sync-version.py"
 )
+assert spec is not None and spec.loader is not None
 sync_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sync_module)
 

@@ -3,6 +3,8 @@ import unittest
 import socket
 import queue
 import time
+from typing import Any, cast
+from unittest import mock
 
 from pythonosc.osc_packet import OscPacket
 
@@ -11,7 +13,7 @@ from backend.osc import OscService
 
 class FakeClient:
     def __init__(self) -> None:
-        self.messages: list[tuple[str, object]] = []
+        self.messages: list[tuple[str, Any]] = []
         self.received = threading.Event()
 
     def send_message(self, address: str, value: object) -> None:
@@ -123,15 +125,15 @@ class OscTests(unittest.TestCase):
 
     def test_socket_error_reports_failure_and_worker_keeps_running(self) -> None:
         sender, events = self.make_sender(chat_interval=0)
-        original = self.client.send_message
-        self.client.send_message = lambda *_args: (_ for _ in ()).throw(
-            OSError("offline")
-        )
-        with self.assertLogs("backend.osc", level="ERROR"):
+        with (
+            mock.patch.object(
+                self.client, "send_message", side_effect=OSError("offline")
+            ),
+            self.assertLogs("backend.osc", level="ERROR"),
+        ):
             sender.send_text("failed", utterance_id="failed")
             name, data = events.get(timeout=1)
         self.assertEqual((name, data["reason"]), ("osc.skipped", "send_failed"))
-        self.client.send_message = original
         sender.send_text("recovered", utterance_id="recovered")
         self.assertEqual(events.get(timeout=1)[0], "osc.sent")
 
@@ -159,7 +161,7 @@ class OscTests(unittest.TestCase):
                     receiver.recv(4096)
             finally:
                 sender.close()
-            self.assertEqual(sender._client._sock.fileno(), -1)
+            self.assertEqual(cast(Any, sender._client)._sock.fileno(), -1)
 
 
 if __name__ == "__main__":

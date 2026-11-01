@@ -42,10 +42,17 @@ export class CaptionBoard {
 	/** Applies one backend event; returns whether any caption changed. */
 	handle(event: BackendEvent, translationEnabled: boolean, now = Date.now()): boolean {
 		const data = isRecord(event.data) ? event.data : {}
-		if (event.event === 'transcript.final') {
+		if (event.event === 'transcript.final' || event.event === 'transcript.partial') {
 			const { utteranceId, text, source } = data
 			if (typeof utteranceId !== 'string' || typeof text !== 'string') return false
 			if (source !== 'voice' && source !== 'speaker' && source !== 'manual') return false
+			// A streamed utterance updates its caption in place as it is spoken.
+			const existing = this.captions.find((caption) => caption.id === utteranceId)
+			if (existing) {
+				existing.original = text
+				existing.updatedAt = now
+				return true
+			}
 			this.captions.push({
 				id: utteranceId,
 				source,
@@ -57,11 +64,11 @@ export class CaptionBoard {
 			this.captions = this.captions.slice(-this.maxItems * 4)
 			return true
 		}
-		if (event.event === 'translation.result') {
+		if (event.event === 'translation.result' || event.event === 'translation.partial') {
 			const caption = this.find(data.context)
 			if (!caption || typeof data.text !== 'string') return false
 			caption.translated = data.text
-			caption.pending = false
+			caption.pending = event.event === 'translation.partial'
 			caption.updatedAt = now
 			return true
 		}

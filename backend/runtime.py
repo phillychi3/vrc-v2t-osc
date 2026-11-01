@@ -27,8 +27,6 @@ def configure_native_runtime() -> None:
     _configured = True
     if sys.platform != "win32":
         return
-    # CTranslate2 loads CUDA libraries dynamically. Scope PATH changes to this
-    # child process; never modify the user's system PATH or use PyTorch DLLs.
     directories = [resource_root() / "cuda"]
     for entry in sys.path:
         for package in ("cublas", "cudnn", "cuda_runtime"):
@@ -39,8 +37,6 @@ def configure_native_runtime() -> None:
             os.environ["PATH"] = str(directory) + os.pathsep + os.environ.get("PATH", "")
 
 
-# cuDNN's loader aborts the whole process when a sub-library is missing, so a
-# CUDA failure cannot be caught and retried on CPU. Check these up front.
 _CUDA_LIBRARIES = (
     "cublas64_12.dll",
     "cublasLt64_12.dll",
@@ -59,8 +55,6 @@ def missing_cuda_libraries() -> list[str]:
     missing = []
     for name in _CUDA_LIBRARIES:
         try:
-            # winmode=0 uses the standard search order (including PATH), which
-            # is how CTranslate2 and cuDNN locate these libraries.
             ctypes.WinDLL(name, winmode=0)
         except OSError:
             missing.append(name)
@@ -83,7 +77,5 @@ def emotion_model_directory() -> Path:
     if override:
         return Path(override)
     if getattr(sys, "frozen", False):
-        # Shared by CPU/CUDA backends; replacing resources/backend must not
-        # duplicate or delete this model.
         return Path(sys.executable).resolve().parent.parent / "models" / "emotion"
     return resource_root() / "build" / "models" / "emotion"

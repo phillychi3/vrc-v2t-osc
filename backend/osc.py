@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class _OwnedUDPClient(udp_client.SimpleUDPClient):
     def close(self) -> None:
-        # python-osc 1.9.3 exposes no public close method.
+
         self._sock.close()
 
 
@@ -33,7 +33,7 @@ class _Message:
     generation: int
 
 
-# Application pacing policy, not a claimed VRChat server rate limit.
+
 CHAT_INTERVAL_SECONDS = 1
 CHAT_MAX_LENGTH = 144
 
@@ -41,7 +41,6 @@ CHAT_MAX_LENGTH = 144
 def text_rejection_reason(text: str) -> str | None:
     if not text.strip():
         return "empty"
-    # Count UTF-16 units conservatively, including surrogate pairs for emoji.
     if len(text.encode("utf-16-le")) // 2 > CHAT_MAX_LENGTH:
         return "too_long"
     if len(text.splitlines()) > 9:
@@ -193,15 +192,12 @@ class OscService:
                 self._queue.popleft()
                 if reason is None:
                     try:
-                        # Invalidation and socket dispatch share this lock. Once
-                        # stop/disable returns, no old packet can start sending.
                         self._client.send_message(message.address, message.value)
                         if chat:
                             self._next_chat_at = time.monotonic() + self._chat_interval
                     except Exception:
                         logger.exception("OSC send failed for %s", message.address)
                         reason = "send_failed"
-            # Never invoke service callbacks while holding the sender lock.
             self._report(message, reason)
 
     def _report(self, message: _Message, reason: str | None) -> None:

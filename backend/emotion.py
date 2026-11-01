@@ -108,7 +108,7 @@ class EmotionService:
     def _load_model(self) -> None:
         self._on_model_status("loading", None)
         try:
-            from transformers import AutoTokenizer
+            from transformers.models.auto.tokenization_auto import AutoTokenizer
 
             directory = emotion_model_directory()
             if not (directory / "model.onnx").is_file():

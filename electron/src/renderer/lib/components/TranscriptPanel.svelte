@@ -82,7 +82,10 @@
 					{@const source = sources[item.source] ?? sources.manual}
 					{@const osc = oscStatus(item)}
 					<article
-						class="flex gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3"
+						class="flex gap-3 rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 {item.partial
+							? 'opacity-70'
+							: ''}"
+						aria-busy={item.partial ? 'true' : undefined}
 					>
 						<span
 							class="mt-0.5 inline-flex h-7 shrink-0 items-center gap-1.5 rounded-lg px-2 text-xs font-bold {source.tone}"

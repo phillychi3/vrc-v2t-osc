@@ -244,6 +244,7 @@ class CalibrationTests(unittest.TestCase):
         # Straight ahead, as far away as the hand: on the arm next to it.
         self.assertAlmostEqual(spot[2], -math.dist([0, 1.6, 0], [0, 1.4, -0.4]))
         basis = calibrate_basis(hmd, controller, spot)
+        assert basis is not None
         rows = [basis[r * 4 : r * 4 + 4] for r in range(3)]
         panel = compose(controller, rows)
         self.assertEqual(rounded([[panel[r][3] for r in range(3)]]), rounded([spot]))
@@ -358,7 +359,7 @@ class CalibrationTests(unittest.TestCase):
 
 class WatchVisibilityTests(unittest.TestCase):
     # Panel lying flat on the wrist, facing up.
-    flat = [[1, 0, 0, 0], [0, 0, 1, 0], [0, -1, 0, 0]]
+    flat = [[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [0.0, -1.0, 0.0, 0.0]]
     # HMD looking straight down.
     looking_down = [[1, 0, 0], [0, 0, 1], [0, -1, 0]]
 
@@ -374,7 +375,7 @@ class WatchVisibilityTests(unittest.TestCase):
 
     def test_panel_facing_away_is_hidden_even_in_view(self) -> None:
         hmd = pose(0, 1.6, 0, self.looking_down)
-        upside_down = [[1, 0, 0, 0], [0, 0, -1, 0], [0, 1, 0, 0]]
+        upside_down = [[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, -1.0, 0.0], [0.0, 1.0, 0.0, 0.0]]
         wrist = pose(0, 1.2, 0)
         self.assertEqual(look_visibility(hmd, wrist, upside_down), 0.0)
 

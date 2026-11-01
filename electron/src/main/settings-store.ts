@@ -79,13 +79,18 @@ function migrate(value: unknown): unknown {
 }
 
 function migrateTranslation(value: Record<string, unknown>): Record<string, unknown> {
-	const translation = value.translation
-	if (!isRecord(translation) || 'geminiApiKey' in translation) return value
-	const { geminiApiKey, qwenEndpoint, qwenApiKey } = DEFAULT_SETTINGS.translation
-	return {
-		...value,
-		translation: { ...translation, geminiApiKey, qwenEndpoint, qwenApiKey }
+	let translation = value.translation
+	if (!isRecord(translation)) return value
+	if (!('geminiApiKey' in translation)) {
+		const { geminiApiKey, qwenEndpoint, qwenApiKey } = DEFAULT_SETTINGS.translation
+		translation = { ...translation, geminiApiKey, qwenEndpoint, qwenApiKey }
 	}
+	// The streaming Gemini provider took over the plain id when the
+	// one-utterance-at-a-time providers were removed.
+	if (isRecord(translation) && translation.provider === 'gemini-live-stream') {
+		translation = { ...translation, provider: 'gemini-live' }
+	}
+	return { ...value, translation }
 }
 
 function migrateOverlay(value: Record<string, unknown>): unknown {

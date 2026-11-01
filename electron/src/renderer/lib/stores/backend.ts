@@ -25,6 +25,8 @@ export interface Transcript {
 	translationTargetLanguage?: string
 	oscStatus?: 'pending' | 'sent' | 'skipped'
 	oscReason?: string
+	/** Still being spoken: a streaming service may revise the text. */
+	partial?: boolean
 }
 
 const state = writable<BackendState | null>(null)
@@ -328,16 +330,32 @@ function applyEvent(event: BackendEvent): void {
 		)
 		return
 	}
-	if (event.event === 'transcript.final' && isTranscript(event.data)) {
-		const transcript: Transcript = {
-			...event.data,
-			oscStatus: event.data.source === 'speaker' ? undefined : 'pending',
-			receivedAt: new Date().toISOString(),
-			translationPending:
-				Boolean(current?.settings.translation.enabled) &&
-				(event.data.source === 'voice' || event.data.source === 'speaker')
-		}
-		transcripts.update((items) => [transcript, ...items].slice(0, 1_000))
+	if (
+		(event.event === 'transcript.final' || event.event === 'transcript.partial') &&
+		isTranscript(event.data)
+	) {
+		const data = event.data
+		const partial = event.event === 'transcript.partial'
+		transcripts.update((items) => {
+			// A streamed utterance arrives as partials, then its final version.
+			const existing = items.find((item) => item.utteranceId === data.utteranceId)
+			if (existing)
+				return items.map((item) =>
+					item === existing ? { ...item, text: data.text, partial } : item
+				)
+			const transcript: Transcript = {
+				utteranceId: data.utteranceId,
+				text: data.text,
+				source: data.source,
+				partial,
+				oscStatus: data.source === 'speaker' ? undefined : 'pending',
+				receivedAt: new Date().toISOString(),
+				translationPending:
+					Boolean(current?.settings.translation.enabled) &&
+					(data.source === 'voice' || data.source === 'speaker')
+			}
+			return [transcript, ...items].slice(0, 1_000)
+		})
 	}
 	if (
 		(event.event === 'osc.sent' || event.event === 'osc.skipped') &&
@@ -374,14 +392,18 @@ function applyEvent(event: BackendEvent): void {
 			[status.provider]: status.status
 		}))
 	}
-	if (event.event === 'translation.result' && isTranslationResult(event.data)) {
+	if (
+		(event.event === 'translation.result' || event.event === 'translation.partial') &&
+		isTranslationResult(event.data)
+	) {
 		const result = event.data
+		const partial = event.event === 'translation.partial'
 		transcripts.update((items) =>
 			items.map((item) =>
 				item.utteranceId === result.context.utteranceId
 					? {
 							...item,
-							translationPending: false,
+							translationPending: partial,
 							translatedText: result.text,
 							translationProvider: result.provider,
 							translationSourceLanguage: result.sourceLanguage,

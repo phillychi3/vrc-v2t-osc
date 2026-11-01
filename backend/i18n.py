@@ -1,11 +1,3 @@
-"""User-facing backend messages, from the same Crowdin-managed JSON catalogs
-(`/locales/*.json`) as the Electron UI. Keys live under `backend.*`.
-
-The language follows `settings.ui.language`; `auto` uses the OS languages
-that Electron passes to `system.initialize`. Locale matching mirrors
-`electron/src/shared/i18n-core.ts`.
-"""
-
 from __future__ import annotations
 
 import json
@@ -31,7 +23,6 @@ _system_languages: tuple[str, ...] = ()
 def match_locale(tag: str) -> str | None:
     lower = tag.lower()
     if lower.startswith("zh"):
-        # Simplified Chinese regions and scripts; any other Chinese is Traditional.
         return "zh-CN" if re.match(r"^zh-(hans|cn|sg|my)\b", lower) else "zh-TW"
     if lower.startswith("ja"):
         return "ja"
@@ -48,8 +39,7 @@ def resolve_locale(preference: str, system_languages: Iterable[str]) -> str:
         locale = match_locale(tag)
         if locale:
             return locale
-    # Unknown OS languages read English; with no OS information at all (tests,
-    # older callers) keep the source language.
+
     return "en" if languages else SOURCE_LOCALE
 
 
@@ -88,7 +78,6 @@ def _load_catalogs() -> dict[str, dict[str, str]]:
 
 
 def t(key: str, **params: object) -> str:
-    """Translates `key`, falling back to Traditional Chinese, then the key."""
     catalogs = _load_catalogs()
     template = (
         catalogs.get(current_locale(), {}).get(key)

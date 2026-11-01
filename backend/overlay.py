@@ -78,7 +78,9 @@ RuntimeFactory = Callable[[], OverlayRuntime]
 
 
 def _multiply(a: list[list[float]], b: list[list[float]]) -> list[list[float]]:
-    return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+    return [
+        [sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)
+    ]
 
 
 def _transpose(a: list[list[float]]) -> list[list[float]]:
@@ -128,23 +130,17 @@ def _ramp(value: float, start: float) -> float:
 
 
 def look_visibility(hmd: Matrix34, device: Matrix34, overlay: Matrix34) -> float:
-    """How much a device-attached panel is being looked at, from 0 to 1.
-
-    `hmd` and `device` are tracking-space poses; `overlay` is the panel's
-    transform relative to the device.
-    """
     panel = _compose(device, overlay)
     to_eyes = _normalize([hmd[row][3] - panel[row][3] for row in range(3)])
     if to_eyes is None:
         return 0.0
-    # The panel shows its front along its local +Z; the HMD looks along -Z.
+
     facing = sum(panel[row][2] * to_eyes[row] for row in range(3))
     gaze = sum(-hmd[row][2] * -to_eyes[row] for row in range(3))
     return _ramp(facing, WATCH_FACING) * _ramp(gaze, WATCH_GAZE)
 
 
 def _rotation(pitch: float, yaw: float, roll: float) -> list[list[float]]:
-    """Rotation about the panel's own axes: yaw (Y), then pitch (X), then roll (Z)."""
     cp, sp = math.cos(pitch), math.sin(pitch)
     cy, sy = math.cos(yaw), math.sin(yaw)
     cr, sr = math.cos(roll), math.sin(roll)
@@ -155,13 +151,6 @@ def _rotation(pitch: float, yaw: float, roll: float) -> list[list[float]]:
 
 
 def overlay_transform(settings: dict[str, Any]) -> tuple[Matrix34, float]:
-    """3x4 device-relative transform and panel width for the configured anchor.
-
-    `basis` is the panel's resting pose on the anchor (identity on the head, or
-    the pose captured by calibration on a hand). Offsets and rotations adjust
-    the panel along its *own* axes: +X right and +Y up as the wearer sees it,
-    +Z toward the eyes. That keeps every slider moving in a straight line.
-    """
     basis = _basis_rows(settings["basis"])
     basis_rotation = [row[:3] for row in basis]
     adjust = _rotation(
@@ -169,7 +158,8 @@ def overlay_transform(settings: dict[str, Any]) -> tuple[Matrix34, float]:
     )
     rotation = _multiply(basis_rotation, adjust)
     offset = _apply(
-        basis_rotation, [float(settings[axis]) for axis in ("offsetX", "offsetY", "offsetZ")]
+        basis_rotation,
+        [float(settings[axis]) for axis in ("offsetX", "offsetY", "offsetZ")],
     )
     matrix = [rotation[row] + [basis[row][3] + offset[row]] for row in range(3)]
     base = HEAD_WIDTH_METERS if settings["anchor"] == "head" else HAND_WIDTH_METERS
@@ -177,11 +167,6 @@ def overlay_transform(settings: dict[str, Any]) -> tuple[Matrix34, float]:
 
 
 def gaze_point(hmd: Matrix34, device: Matrix34) -> list[float]:
-    """Where the wearer is looking, at the controller's distance from the eyes.
-
-    A forearm spot next to the hand is about as far away as the hand itself,
-    so this lands on the arm without knowing the controller's shape.
-    """
     eyes = _column(hmd, 3)
     distance = math.dist(eyes, _column(device, 3))
     return [eyes[i] - hmd[i][2] * distance for i in range(3)]
@@ -190,11 +175,6 @@ def gaze_point(hmd: Matrix34, device: Matrix34) -> list[float]:
 def calibrate_basis(
     hmd: Matrix34, device: Matrix34, position: list[float]
 ) -> list[float] | None:
-    """Device-relative resting pose for a panel at `position` (room space).
-
-    The panel faces the eyes and is level with the headset's horizon, so its
-    text reads straight in the pose the wearer holds now.
-    """
     device_position = _column(device, 3)
     eyes = _column(hmd, 3)
     normal = _normalize([eyes[i] - position[i] for i in range(3)])
@@ -213,16 +193,8 @@ def calibrate_basis(
 
 
 class CalibrationTracker:
-    """Waits until the wearer holds a watch-checking pose, then captures a basis.
-
-    Every sample leaves a human-readable `hint` saying what is still missing,
-    so the wearer (and a timeout message) can tell why nothing happens yet.
-    """
-
     def __init__(self, now: float) -> None:
         self._deadline = now + CALIBRATION_TIMEOUT_SECONDS
-        # (time, controller position in the room, looked-at spot in controller
-        # space) while the pose holds.
         self._samples: deque[tuple[float, list[float], list[float]]] = deque()
         self.hint = t("backend.calibration.waiting")
         self._problems: dict[str, int] = {}
@@ -268,15 +240,16 @@ class CalibrationTracker:
                 ),
             )
             return None
-        # The looked-at spot relative to the hand, so the arm can carry it.
+
         rotation = [row[:3] for row in device]
         spot = _apply(_transpose(rotation), [target[i] - position[i] for i in range(3)])
         hand_drift = max(
             (math.dist(sample, position) for _, sample, _ in self._samples), default=0.0
         )
-        gaze_drift = max((math.dist(sample, spot) for _, _, sample in self._samples), default=0.0)
+        gaze_drift = max(
+            (math.dist(sample, spot) for _, _, sample in self._samples), default=0.0
+        )
         if hand_drift > CALIBRATION_STILL_METERS:
-            # Start the hold over from here.
             self._samples.clear()
             self.note(
                 "moving",
@@ -307,9 +280,11 @@ class CalibrationTracker:
                     seconds=f"{CALIBRATION_HOLD_SECONDS - held:.1f}",
                 )
             return None
-        # Average the looked-at spot over the hold to smooth out head jitter.
+
         count = len(self._samples)
-        average = [sum(sample[i] for _, _, sample in self._samples) / count for i in range(3)]
+        average = [
+            sum(sample[i] for _, _, sample in self._samples) / count for i in range(3)
+        ]
         world = [position[i] + _apply(rotation, average)[i] for i in range(3)]
         return calibrate_basis(hmd, device, world)
 
@@ -331,8 +306,6 @@ class OpenVrRuntime:
         self._poses: Any = None
         self._panel: Matrix34 | None = None
         self._calibration: CalibrationTracker | None = None
-        # Latest unreported calibration update: ("running", None, hint) while
-        # in progress, then ("done", basis, None) or ("failed", None, reason).
         self._calibration_result: tuple[str, list[float] | None, str | None] | None = None
         self._reported_hint: str | None = None
         self._reported_hint_at = 0.0
@@ -349,8 +322,6 @@ class OpenVrRuntime:
         self._openvr = openvr
         if not openvr.isRuntimeInstalled():
             raise OverlayUnavailable(t("backend.overlay.noSteamVR"))
-        # A background probe never launches SteamVR; only attach as an overlay
-        # application once the user already has SteamVR running.
         try:
             openvr.init(openvr.VRApplication_Background)
         except openvr.OpenVRError:
@@ -392,7 +363,6 @@ class OpenVrRuntime:
         self._settings = deepcopy(settings)
         matrix, width = overlay_transform(settings)
         self._overlay.setOverlayWidthInMeters(self._handle, width)
-        # Watch mode starts hidden and fades in once the wearer looks at it.
         self._set_alpha(0.0 if watch_mode(settings) else float(settings["opacity"]))
         self._device = None
         self._next_anchor_check = 0.0
@@ -431,7 +401,9 @@ class OpenVrRuntime:
         if self._calibration is not None:
             self._overlay.setOverlayFromFile(self._handle, prompt_image)
 
-    def take_calibration_result(self) -> tuple[str, list[float] | None, str | None] | None:
+    def take_calibration_result(
+        self,
+    ) -> tuple[str, list[float] | None, str | None] | None:
         result, self._calibration_result = self._calibration_result, None
         return result
 
@@ -447,7 +419,6 @@ class OpenVrRuntime:
             self._update_calibration()
             return True
         if self._settings is not None and time.monotonic() >= self._next_anchor_check:
-            # Controller indices change when controllers reconnect.
             self._update_anchor(overlay_transform(self._settings)[0])
         if self._settings is not None and watch_mode(self._settings):
             self._update_watch_alpha()
@@ -456,7 +427,9 @@ class OpenVrRuntime:
     def _read_poses(self) -> Any:
         openvr = self._openvr
         if self._poses is None:
-            self._poses = (openvr.TrackedDevicePose_t * openvr.k_unMaxTrackedDeviceCount)()
+            self._poses = (
+                openvr.TrackedDevicePose_t * openvr.k_unMaxTrackedDeviceCount
+            )()
         self._system.getDeviceToAbsoluteTrackingPose(
             openvr.TrackingUniverseStanding, 0, self._poses
         )
@@ -464,6 +437,8 @@ class OpenVrRuntime:
 
     def _update_calibration(self) -> None:
         tracker = self._calibration
+        if tracker is None:
+            return
         now = time.monotonic()
         if tracker.expired(now):
             self._finish_calibration(
@@ -487,7 +462,9 @@ class OpenVrRuntime:
             if not hmd.bPoseIsValid:
                 tracker.note("tracking", t("backend.calibration.hmdLost"))
             elif not controller.bPoseIsValid:
-                tracker.note("tracking", t("backend.calibration.controllerLost", hand=hand))
+                tracker.note(
+                    "tracking", t("backend.calibration.controllerLost", hand=hand)
+                )
             else:
                 basis = tracker.feed(
                     now,
@@ -512,7 +489,11 @@ class OpenVrRuntime:
 
     def _update_watch_alpha(self) -> None:
         target = 0.0
-        if self._device is not None and self._panel is not None:
+        if (
+            self._device is not None
+            and self._panel is not None
+            and self._settings is not None
+        ):
             poses = self._read_poses()
             hmd = poses[self._openvr.k_unTrackedDeviceIndex_Hmd]
             device = poses[self._device]
@@ -548,7 +529,9 @@ class OpenVrRuntime:
         self._next_anchor_check = time.monotonic() + 1.0
         anchor = self._settings["anchor"] if self._settings else "head"
         device = (
-            openvr.k_unTrackedDeviceIndex_Hmd if anchor == "head" else self._controller_index()
+            openvr.k_unTrackedDeviceIndex_Hmd
+            if anchor == "head"
+            else self._controller_index()
         )
         if device != self._device:
             self._device = device
@@ -593,7 +576,6 @@ class OverlayService:
         on_calibration: CalibrationHandler | None = None,
         runtime_factory: RuntimeFactory = OpenVrRuntime,
         retry_interval: float = 5.0,
-        # Watch mode fades with head and hand movement, so poll at ~30 Hz.
         poll_interval: float = 1 / 30,
     ) -> None:
         self._on_status = on_status
@@ -606,7 +588,6 @@ class OverlayService:
         self._image: str | None = None
         self._layout_dirty = True
         self._image_dirty = True
-        # (prompt image, update only) waiting for the overlay thread.
         self._calibration_prompt: tuple[str, bool] | None = None
         self._closed = False
         self._status: tuple[str, str | None] = ("disabled", None)
@@ -674,7 +655,6 @@ class OverlayService:
             return
         if result[0] != "running":
             with self._condition:
-                # Restore the regular layout and captions after the prompt.
                 self._layout_dirty = True
                 self._image_dirty = True
         if self._on_calibration is None:
@@ -722,7 +702,9 @@ class OverlayService:
                         continue
                     except Exception as exc:
                         logger.exception("OpenVR connection failed")
-                        self._set_status("error", str(exc) or t("backend.overlay.connectFailed"))
+                        self._set_status(
+                            "error", str(exc) or t("backend.overlay.connectFailed")
+                        )
                         self._wait(self._retry_interval)
                         continue
                     if not connected:
@@ -733,6 +715,7 @@ class OverlayService:
                         self._layout_dirty = True
                         self._image_dirty = True
                     self._set_status("connected")
+                assert runtime is not None  # created above before connecting
                 try:
                     self._sync(runtime)
                     alive = runtime.poll()
@@ -741,7 +724,9 @@ class OverlayService:
                     logger.exception("OpenVR overlay update failed")
                     self._disconnect(runtime)
                     connected = False
-                    self._set_status("error", str(exc) or t("backend.overlay.updateFailed"))
+                    self._set_status(
+                        "error", str(exc) or t("backend.overlay.updateFailed")
+                    )
                     self._wait(self._retry_interval)
                     continue
                 if not alive:
@@ -768,20 +753,20 @@ class OverlayService:
     def _wait_for_settings_change(self) -> None:
         with self._condition:
             self._layout_dirty = False
-            while not self._closed and self._settings["enabled"] and not self._layout_dirty:
+            while (
+                not self._closed and self._settings["enabled"] and not self._layout_dirty
+            ):
                 self._condition.wait()
 
     def _sync(self, runtime: OverlayRuntime) -> None:
         with self._condition:
             request, self._calibration_prompt = self._calibration_prompt, None
-            prompt, update = request if request else (None, False)
-            if update:
-                # A refreshed hint; stale once calibration has already ended.
+            prompt = request[0] if request else None
+            if request is not None and request[1]:
                 if runtime.calibrating:
-                    runtime.update_calibration_prompt(prompt)
+                    runtime.update_calibration_prompt(request[0])
                 return
             if prompt is None and runtime.calibrating:
-                # Keep the prompt up; layout and captions resume afterwards.
                 return
             layout = deepcopy(self._settings) if self._layout_dirty else None
             image_dirty = self._image_dirty

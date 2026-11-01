@@ -7,9 +7,10 @@ import sys
 import threading
 from typing import Any
 
+from backend.container import build
+from backend.core.errors import ServiceError
 from backend.emotion import EmotionService
 from backend.i18n import t
-from backend.overlay import OverlayService
 from backend.protocol import (
     ProtocolError,
     decode_request,
@@ -17,17 +18,12 @@ from backend.protocol import (
     response_error,
     response_ok,
 )
-from backend.service import BackendService, ServiceError
-from backend.translation import TranslationService
-from backend.voice import VoiceService
 from backend.runtime import backend_variant, configure_native_runtime
 
 
 class MessageWriter:
     def __init__(self) -> None:
         self._queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
-        # Capture the protocol stream once. Model loaders may temporarily redirect
-        # sys.stdout, but protocol responses must always stay on the original pipe.
         self._stream = sys.stdout.buffer
         self._thread = threading.Thread(target=self._run, name="protocol-writer")
         self._thread.start()
@@ -59,13 +55,7 @@ def main() -> int:
         import onnxruntime  # noqa: F401
 
     writer = MessageWriter()
-    service = BackendService(
-        lambda _event, payload: writer.send(payload),
-        voice_factory=VoiceService,
-        emotion_factory=EmotionService,
-        translation_factory=TranslationService,
-        overlay_factory=OverlayService,
-    )
+    service = build(writer.send)
     try:
         for line in sys.stdin.buffer:
             request_id: str | None = None
@@ -88,7 +78,9 @@ def main() -> int:
             except Exception:
                 logging.exception("Unhandled backend error")
                 writer.send(
-                    response_error(request_id, "INTERNAL_ERROR", t("backend.internalError"))
+                    response_error(
+                        request_id, "INTERNAL_ERROR", t("backend.internalError")
+                    )
                 )
             if service.stopped:
                 break
@@ -117,7 +109,6 @@ def self_test(
     stage("av-resample")
     from backend.audio import normalize_audio
 
-    # The first block is shorter by the resampler's filter delay.
     converted, _ = normalize_audio(bytes(480 * 4), 2, 48000, None)
     assert 128 * 2 <= len(converted) <= 160 * 2
 
@@ -141,7 +132,7 @@ def self_test(
     from faster_whisper.vad import get_vad_model
 
     stage("transformers")
-    from transformers import AutoTokenizer  # noqa: F401
+    from transformers.models.auto.tokenization_auto import AutoTokenizer  # noqa: F401
 
     stage("silero-model")
     vad_model = get_vad_model()

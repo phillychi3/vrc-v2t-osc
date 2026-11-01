@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 import threading
+from typing import Any
 
 from backend.runtime import cpu_session
 from backend.i18n import t
 
 MODEL_ID = "venddair/nllb-200-distilled-600M-onnx"
 MODEL_REVISION = "714bc338a10f51a2f5567ff355aab76f21de8a91"
-# Greedy decoding can fall into loops ("ha ha ha ..."). Block repeated
-# n-grams and bound the output by the input length instead of failing.
+
 NO_REPEAT_NGRAM = 3
 MAX_NEW_TOKENS = 256
 
@@ -43,13 +43,15 @@ MODEL_FILES = [
 class NllbTranslator:
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._tokenizer = None
-        self._encoder = None
-        self._decoder = None
+        # Loaded on first use; the libraries ship incomplete type information.
+        self._tokenizer: Any = None
+        self._encoder: Any = None
+        self._decoder: Any = None
 
-    def _load(self) -> None:
+    def _load(self) -> Any:
+        """Loads the model and returns its tokenizer."""
         from huggingface_hub import snapshot_download
-        from transformers import AutoTokenizer
+        from transformers.models.auto.tokenization_auto import AutoTokenizer
         from pathlib import Path
 
         directory = Path(
@@ -67,15 +69,13 @@ class NllbTranslator:
         encoder = cpu_session(directory / "encoder_model_int8.onnx")
         decoder = cpu_session(directory / "decoder_model_int8.onnx")
         self._tokenizer, self._encoder, self._decoder = tokenizer, encoder, decoder
+        return tokenizer
 
     def translate(self, text: str, source: str, target: str) -> str:
         import numpy as np
 
-        # NLLB's source-language setter mutates the tokenizer's special tokens.
         with self._lock:
-            if self._tokenizer is None:
-                self._load()
-            tokenizer = self._tokenizer
+            tokenizer = self._tokenizer if self._tokenizer is not None else self._load()
             target_id = tokenizer.convert_tokens_to_ids(target)
             source_id = tokenizer.convert_tokens_to_ids(source)
             if target_id == tokenizer.unk_token_id or source_id == tokenizer.unk_token_id:
@@ -92,8 +92,6 @@ class NllbTranslator:
                     "attention_mask": mask,
                 },
             )[0]
-            # This export has no past-key-value inputs; decode the full prefix.
-            # It expects EOS-as-BOS followed by the target language token.
             ids = [tokenizer.eos_token_id, target_id]
             for _ in range(max_new_tokens(int(mask.sum()))):
                 logits = self._decoder.run(
@@ -107,7 +105,7 @@ class NllbTranslator:
                 scores = logits[0, -1].copy()
                 if not np.isfinite(scores).all():
                     raise RuntimeError(t("backend.nllb.invalidOutput"))
-                # These are control tokens, never generated translation text.
+
                 scores[tokenizer.bos_token_id] = -np.inf
                 scores[tokenizer.pad_token_id] = -np.inf
                 for banned in repeated_ngram_tokens(ids[2:]):
@@ -116,7 +114,7 @@ class NllbTranslator:
                 if token == tokenizer.eos_token_id:
                     break
                 ids.append(token)
-            # Reaching the length bound keeps the text translated so far.
+
             translated = tokenizer.decode(ids[2:], skip_special_tokens=True).strip()
             if not translated:
                 raise RuntimeError(t("backend.nllb.emptyOutput"))

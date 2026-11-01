@@ -15,12 +15,12 @@ SPEECH_MODELS = {
     "large-v3-turbo",
 }
 TRANSLATION_MODELS = {MODEL_ID}
-# Spoken/translated languages offered in the UI (electron languages.ts).
+
 SUPPORTED_LANGUAGES = {"zh", "en", "ja", "ko", "fr", "de", "es"}
 OVERLAY_ANCHORS = {"head", "leftHand", "rightHand"}
-# Interface languages; "auto" follows the operating system.
+
 UI_LANGUAGES = {"auto", "zh-TW", "zh-CN", "en", "ja"}
-# Qwen LiveTranslate realtime API, international (Singapore) region.
+
 QWEN_ENDPOINT = "wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime"
 
 
@@ -67,7 +67,6 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "showMicrophone": False,
         "showSpeaker": True,
         "watchMode": False,
-        # Row-major 3x4 resting pose on the anchor, captured by calibration.
         "basis": [1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0],
     },
     "ui": {"language": "auto"},
