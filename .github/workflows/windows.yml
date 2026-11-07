@@ -106,6 +106,7 @@ jobs:
       - name: Build web installer
         # The app package carries only Electron and the frontend; the
         # selected backend and the optional emotion model are downloaded.
+        # release/nsis-web also gets latest.yml for electron-updater.
         run: pnpm exec electron-builder --win nsis-web --x64 --publish never
       - name: Installer choice, download and reinstall regression
         shell: pwsh

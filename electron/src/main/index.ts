@@ -8,6 +8,7 @@ import { SettingsStore } from './settings-store.js'
 import { resolveBackendCommand } from './backend-command.js'
 import { OverlayController } from './overlay-controller.js'
 import { currentLocale, setLanguagePreference, t } from './i18n.js'
+import { startAutoUpdate } from './updater.js'
 
 const backend = new BackendProcess(resolveBackendCommand(), {
 	translate: t,
@@ -95,6 +96,7 @@ async function bootstrap(): Promise<void> {
 		window.once('closed', () => overlay.dispose())
 		window.show()
 		closeSplashWindow()
+		startAutoUpdate()
 	} catch (error) {
 		closeSplashWindow()
 		throw error

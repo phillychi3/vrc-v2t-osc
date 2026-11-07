@@ -13,7 +13,7 @@ const source = readFileSync(new URL('../electron/src/main/index.ts', import.meta
 async function boot(response = 1, sourceText = source) {
 	const script = stripTypeScriptTypes(sourceText).replace(/^import .*\r?\n/gm, '')
 	const starts = []
-	const calls = { main: 0, shown: 0, splashClosed: 0, dialogs: 0, stopped: 0, quit: 0 }
+	const calls = { main: 0, shown: 0, splashClosed: 0, dialogs: 0, stopped: 0, quit: 0, updates: 0 }
 	const instances = {}
 	class FakeBackend extends EventEmitter {
 		constructor() {
@@ -62,6 +62,7 @@ async function boot(response = 1, sourceText = source) {
 			return { show: () => calls.shown++, once: () => undefined }
 		},
 		closeSplashWindow: () => calls.splashClosed++,
+		startAutoUpdate: () => calls.updates++,
 		getMainWindow: () => null,
 		BrowserWindow: { getAllWindows: () => [] },
 		IpcChannel: {},
@@ -91,11 +92,14 @@ test('main window waits for successful speech initialization, not backend.ready'
 	await setImmediate()
 	assert.equal(calls.main, 0)
 	assert.equal(calls.splashClosed, 0)
+	assert.equal(calls.updates, 0)
 	starts[0].resolve({ models: { speech: { status: 'ready' } } })
 	await setImmediate()
 	assert.equal(calls.main, 1)
 	assert.equal(calls.shown, 1)
 	assert.equal(calls.splashClosed, 1)
+	// Update checks start only once the app is actually usable.
+	assert.equal(calls.updates, 1)
 })
 
 test('failed speech load offers retry without revealing main window', async () => {

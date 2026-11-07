@@ -8,8 +8,9 @@
 !ifndef BUILD_UNINSTALLER
 ; Archive names, download URLs, SHA2-512 digests and sizes, written by
 ; scripts/prepare-assets.cjs. Run `pnpm prepare:assets` before packaging.
-; Each asset carries its own URL: the backends live under this release's folder,
-; while the emotion model stays in the folder it was published to once.
+; Each asset carries its own URL: the backends are assets of this version's
+; GitHub release, while the emotion model stays in the Cloudflare R2 folder it
+; was published to once.
 !include "${PROJECT_DIR}\build\installer-payload\installer-assets.nsh"
 
 Var BackendVariant
@@ -24,6 +25,8 @@ Var AssetEntry
 Var AssetDigest
 Var AssetRequiredMb
 Var AssetFile
+; "yes" when electron-updater started this installer (it passes --updated).
+Var UpdateRun
 
 !macro customHeader
 LangString BackendTitle ${LANG_TRADCHINESE} "選擇要安裝的元件"
@@ -49,6 +52,14 @@ LangString BackendSpaceFailure ${LANG_ENGLISH} "Not enough space on the drive ho
 !macroend
 
 !macro customInit
+  ${GetParameters} $R0
+  ClearErrors
+  ${GetOptions} $R0 "--updated" $R1
+  ${If} ${Errors}
+    StrCpy $UpdateRun "no"
+  ${Else}
+    StrCpy $UpdateRun "yes"
+  ${EndIf}
   ReadRegStr $BackendVariant SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" "BackendVariant"
   ${If} $BackendVariant != "cu126"
     StrCpy $BackendVariant "cpu"
@@ -87,6 +98,11 @@ LangString BackendSpaceFailure ${LANG_ENGLISH} "Not enough space on the drive ho
 !macroend
 
 Function BackendPageCreate
+  ; An update keeps the components chosen at install time, like the other
+  ; pages electron-builder skips for --updated.
+  ${If} $UpdateRun == "yes"
+    Abort
+  ${EndIf}
   !insertmacro MUI_HEADER_TEXT "$(BackendTitle)" "$(BackendSubtitle)"
   nsDialogs::Create 1018
   Pop $0
@@ -259,27 +275,30 @@ FunctionEnd
 
   ${If} $EmotionWanted == "yes"
     !insertmacro selectAsset "${ASSET_EMOTION_NAME}" "${ASSET_EMOTION_URL}" "${ASSET_EMOTION_ENTRY}" "${ASSET_EMOTION_HASH}" "${ASSET_EMOTION_REQUIRED_MB}"
-    !insertmacro obtainAsset "Emotion"
-    !insertmacro extractAsset "$INSTDIR\resources\models\emotion"
+    ; The model is pinned across app releases. An update keeps the copy already
+    ; unpacked from this exact archive instead of downloading it again; running
+    ; the installer by hand still replaces it, which is how it gets repaired.
+    ReadRegStr $R2 SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" "EmotionDigest"
+    ${If} $UpdateRun == "yes"
+    ${AndIf} $R2 == $AssetDigest
+    ${AndIf} ${FileExists} "$INSTDIR\resources\models\emotion\$AssetEntry"
+      DetailPrint "Keeping the installed $AssetArchive"
+    ${Else}
+      !insertmacro obtainAsset "Emotion"
+      !insertmacro extractAsset "$INSTDIR\resources\models\emotion"
+      WriteRegStr SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" "EmotionDigest" "$AssetDigest"
+    ${EndIf}
   ${Else}
     ; Reinstalling with the box cleared removes a previously installed model.
     RMDir /r "$INSTDIR\resources\models\emotion"
     RMDir "$INSTDIR\resources\models"
+    DeleteRegValue SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" "EmotionDigest"
   ${EndIf}
 
   WriteRegStr SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" "BackendVariant" "$BackendVariant"
   WriteRegStr SHELL_CONTEXT "${INSTALL_REGISTRY_KEY}" "EmotionModel" "$EmotionWanted"
   SetOutPath "$INSTDIR"
-  !ifdef APP_PACKAGE_STORE_FILE
-    ; The web installer keeps the downloaded app package for electron-updater,
-    ; which this app does not ship. Reclaim that space instead.
-    ${If} $installMode == "all"
-      SetShellVarContext current
-    ${EndIf}
-    Delete "$LOCALAPPDATA\${APP_PACKAGE_STORE_FILE}"
-    ${If} $installMode == "all"
-      SetShellVarContext all
-    ${EndIf}
-  !endif
+  ; The app package the web installer leaves under APP_PACKAGE_STORE_FILE is
+  ; what electron-updater diffs the next version against, so it is kept.
 !macroend
 !endif

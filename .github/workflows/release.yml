@@ -1,10 +1,10 @@
 name: Windows release
 
 # The release itself is published by hand. This rebuilds and revalidates the
-# tag, uploads the assets the published installer downloads to Cloudflare R2
-# (https://cdn.cloudowo.com/vrc2t/<tag>/), and attaches only the web installer
-# and checksums to the release. It never creates, publishes or rewrites a
-# release, so the notes stay as written.
+# tag and attaches everything the published installer and electron-updater
+# download to that release: the web installer, the app package, both backends,
+# latest.yml and checksums. It never creates, publishes or rewrites a release,
+# so the notes stay as written. Only the emotion model lives on Cloudflare R2.
 on:
   release:
     types: [published]
@@ -58,16 +58,8 @@ jobs:
         with:
           name: windows-backend-cu126
           path: installer
-      - name: Upload the installer and backends to R2, attach the installer to the release
+      - name: Attach the installer, app package, backends and latest.yml to the release
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          # R2 rejects the checksum headers newer AWS CLIs send by default.
-          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
-          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
-          R2_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.event.release.tag_name || github.ref_name }}
@@ -75,20 +67,32 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # A missing optional glob such as *.blockmap must expand to nothing.
+          shopt -s nullglob
           cd installer
           VERSION="${TAG#v}"
-          # The web installer downloads these assets from vrc2t/<tag>/ on R2, so
+          # The web installer downloads these from releases/download/<tag>/, so
           # their names must stay exactly as the installer was compiled to expect.
-          # The emotion model is not among them: it stays in its own folder, see
+          # The emotion model is not among them: it stays on R2, see
           # packaging/emotion-asset.json and .github/workflows/emotion.yml.
           test -f "VRC2T-${VERSION}-windows-x64-web-setup.exe"
           test -f "vrc2t-${VERSION}-x64.nsis.7z"
           test -f "vrc2t-backend-cpu-${VERSION}-x64.7z"
           test -f "vrc2t-backend-cu126-${VERSION}-x64.7z"
-          sha256sum -- *.exe *.7z > SHA256SUMS.txt
-          for file in ./*.exe ./*.7z SHA256SUMS.txt; do
-            aws s3 cp "$file" "s3://$R2_BUCKET/vrc2t/$TAG/$(basename "$file")" --endpoint-url "$R2_ENDPOINT" --no-progress
+          test -f latest.yml
+          grep -q "^version: ${VERSION}$" latest.yml
+          # GitHub rejects release assets of 2 GiB or more.
+          for file in ./*.exe ./*.7z; do
+            size=$(stat -c %s "$file")
+            if [ "$size" -ge 2147483648 ]; then
+              echo "::error::$(basename "$file") is $size bytes, over GitHub's 2 GiB asset limit"
+              exit 1
+            fi
           done
-          gh release upload "$TAG" ./*.exe SHA256SUMS.txt --clobber
-          printf 'Release: %s\n\nDownloads: https://cdn.cloudowo.com/vrc2t/%s/\n\nValidation: %s\n' \
-            "$(gh release view "$TAG" --json url --jq .url)" "$TAG" "$RUN_URL" >> "$GITHUB_STEP_SUMMARY"
+          sha256sum -- *.exe *.7z > SHA256SUMS.txt
+          # latest.yml goes last: once it is there, installed apps start
+          # downloading this version, so everything it points at must exist.
+          gh release upload "$TAG" ./*.7z ./*.exe ./*.blockmap SHA256SUMS.txt --clobber
+          gh release upload "$TAG" latest.yml --clobber
+          printf 'Release: %s\n\nValidation: %s\n' \
+            "$(gh release view "$TAG" --json url --jq .url)" "$RUN_URL" >> "$GITHUB_STEP_SUMMARY"

@@ -196,6 +196,26 @@ try {
     Invoke-Install '/BACKEND=cu126 /EMOTION=yes' 'cu126' $true
 
     Invoke-Install '' 'cu126' $true
+
+    # An electron-updater run (--updated) keeps the model unpacked from the same
+    # pinned archive: with the served copy corrupted it must not even fetch it.
+    $served = Join-Path $payload $archiveOf['emotion']
+    Move-Item -LiteralPath $served -Destination "$served.intact"
+    Set-Content -LiteralPath $served -Value 'corrupt archive'
+    Set-Content (Join-Path $emotionDir 'kept.txt') 'kept'
+    try {
+        Invoke-Install '--updated' 'cu126' $true
+    } finally {
+        Remove-Item -LiteralPath $served
+        Move-Item -LiteralPath "$served.intact" -Destination $served
+    }
+    if (-not (Test-Path (Join-Path $emotionDir 'kept.txt'))) {
+        throw 'An update replaced an emotion model that was already current'
+    }
+    # A run by hand still replaces it, which is how a damaged model is repaired.
+    Invoke-Install '' 'cu126' $true
+    if (Test-Path (Join-Path $emotionDir 'kept.txt')) { throw 'A manual reinstall kept the old model' }
+
     Invoke-Install '/BACKEND=cpu /EMOTION=no' 'cpu' $false
     Assert-Rejected '/BACKEND=invalid' 'cpu' 'no' 'Invalid backend option was not rejected'
     Assert-Rejected '/EMOTION=maybe' 'cpu' 'no' 'Invalid emotion option was not rejected'
@@ -223,7 +243,8 @@ try {
     Assert-Rejected '/BACKEND=cpu' 'cpu' 'yes' 'A mismatched local archive was not rejected'
 
     Write-Output ('PASS: fresh install, GPU and emotion selection, nested files, remembered ' +
-        'selection, switching both off, stale directory replacement, invalid options, corrupt ' +
+        'selection, emotion model kept on update, switching both off, stale directory ' +
+        'replacement, invalid options, corrupt ' +
         'backend and emotion downloads, offline install from local archives and mismatched ' +
         'local archive rejection')
     Write-Output "Interactive test installer: $setup"

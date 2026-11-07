@@ -15,8 +15,8 @@ const { version } = require('../package.json')
 // unpacked; the backend one is overridable so the regression can use a stand-in.
 const BACKEND_ENTRY = process.env.VRC_BACKEND_ENTRY || 'vrc-v2t-backend.exe'
 
-// The backends change with every release, so they are packed here and uploaded
-// to that release's folder. The emotion model does not: it is pinned by
+// The backends change with every release, so they are packed here and attached
+// to that version's GitHub release. The emotion model does not: it is pinned by
 // packaging/emotion-asset.json and published once per model revision, so it is
 // neither packed nor uploaded again. See EMOTION_MANIFEST below.
 const BACKENDS = [
@@ -39,8 +39,10 @@ const EMOTION_MANIFEST = path.join(__dirname, '..', 'packaging', 'emotion-asset.
 // Packing a local emotion directory instead of trusting the pinned archive is
 // only for the installer regression's stand-in model; a release never sets it.
 const EMOTION_SOURCE = process.env.VRC_EMOTION_MODEL_DIR
-// Release assets live under the version folder the release workflow uploads to R2.
-const BASE_URL = process.env.VRC_ASSET_BASE_URL || `https://cdn.cloudowo.com/vrc2t/v${version}`
+// Release assets are attached to the GitHub release of this version's tag.
+const BASE_URL =
+	process.env.VRC_ASSET_BASE_URL ||
+	`https://github.com/phillychi3/vrc-v2t-osc/releases/download/v${version}`
 // Headroom for the archive copy plus NSIS temporaries next to the unpacked tree.
 const SPARE_MEGABYTES = 256
 

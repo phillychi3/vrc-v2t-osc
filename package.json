@@ -33,6 +33,7 @@
 		"electron": "^44.2.0",
 		"electron-builder": "^26.15.3",
 		"electron-serve": "^3.0.1",
+		"electron-updater": "^6.8.11",
 		"eslint": "^10.10.0",
 		"eslint-config-prettier": "^10.1.8",
 		"eslint-plugin-svelte": "^3.23.0",
