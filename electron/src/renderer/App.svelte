@@ -121,6 +121,13 @@
 		<main class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 			<FeatureControls
 				state={$backendState}
+				speechTranslation={Boolean(
+					$backendState?.settings.translation.enabled &&
+					$translationProviders.some(
+						(provider) =>
+							provider.id === $backendState?.settings.translation.provider && provider.audio
+					)
+				)}
 				translationAvailable={$translationProviders.some(
 					(provider) => provider.id === $backendState?.settings.translation.provider
 				)}

@@ -279,7 +279,9 @@
 					onChange={(model) => void onUpdate({ speech: { model } })}
 				/>
 				<p class="field-help">
-					{speechModelStatus === 'loading' ? $t('speech.loading') : $t('speech.help')}
+					{speechModelStatus === 'loading' && !speechTranslation
+						? $t('speech.loading')
+						: $t('speech.help')}
 				</p>
 				{#if speechTranslation}
 					<p class="field-help">{$t('speech.liveNote')}</p>

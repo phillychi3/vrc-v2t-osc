@@ -103,7 +103,10 @@ ipcMain.handle('backend:list-audio-devices', () => {
 	}
 })
 ipcMain.handle('backend:list-translation-providers', () => ({
-	providers: [{ id: 'onnx', label: 'Local', local: true }]
+	providers: [
+		{ id: 'onnx', label: 'Local', local: true, audio: false },
+		{ id: 'gemini-live', label: 'Live Translate', local: false, audio: true }
+	]
 }))
 ipcMain.handle('backend:start-recording', (_event, _device, source) => record(source, 'listening'))
 ipcMain.handle('backend:stop-recording', (_event, source) => record(source, 'idle'))
@@ -181,6 +184,33 @@ async function run() {
 		await waitFor(`document.querySelector('article')?.textContent.includes('已送到聊天框')`)
 		assert.deepEqual(sent, ['模型載入時也能送字'])
 		evidence.push('model loading disables recording but permits manual text; OSC status rendered')
+
+		Object.assign(settings.translation, { enabled: true, provider: 'gemini-live' })
+		emit('settings.changed', { settings })
+		await waitFor(
+			`document.querySelector('.feature-action').textContent.includes('正在準備語音輸入')`
+		)
+		assert.equal(
+			await evaluate(
+				`document.querySelector('.feature-action').textContent.includes('模型載入中')`
+			),
+			false
+		)
+		emit('model.status', { model: 'speech', status: 'failed', device: null })
+		await waitFor(
+			`document.querySelector('.feature-action').textContent.includes('語音輸入尚未就緒')`
+		)
+		Object.assign(settings.translation, { enabled: false, provider: 'onnx' })
+		emit('settings.changed', { settings })
+		emit('model.status', { model: 'speech', status: 'failed', device: null })
+		await waitFor(
+			`document.querySelector('.feature-action').textContent.includes('語音模型載入失敗')`
+		)
+		emit('model.status', { model: 'speech', status: 'loading', device: null })
+		await waitFor(
+			`document.querySelector('.feature-action').textContent.includes('語音模型載入中')`
+		)
+		evidence.push('live API preparation and failure never display speech model loading')
 
 		await evaluate(
 			`document.querySelector('textarea').dispatchEvent(new CompositionEvent('compositionstart', { bubbles: true }))`

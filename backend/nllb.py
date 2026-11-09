@@ -43,10 +43,15 @@ MODEL_FILES = [
 class NllbTranslator:
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        # Loaded on first use; the libraries ship incomplete type information.
+        # The libraries ship incomplete type information.
         self._tokenizer: Any = None
         self._encoder: Any = None
         self._decoder: Any = None
+
+    def load(self) -> None:
+        with self._lock:
+            if self._tokenizer is None:
+                self._load()
 
     def _load(self) -> Any:
         """Loads the model and returns its tokenizer."""

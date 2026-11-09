@@ -41,6 +41,11 @@ class TranslationProvider(Protocol):
     def close(self) -> None: ...
 
 
+class LocalTranslationProvider(TranslationProvider, Protocol):
+    def load(self) -> None:
+        """Load local model weights without performing a translation."""
+
+
 ProviderBuilder = Callable[[dict[str, Any]], Any]
 
 

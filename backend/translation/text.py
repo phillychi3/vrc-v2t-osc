@@ -33,6 +33,9 @@ class OnnxTranslationProvider:
             raise ValueError(t("backend.translation.unsupportedModel"))
         self._translator = NllbTranslator()
 
+    def load(self) -> None:
+        self._translator.load()
+
     def translate(self, request: TranslationRequest) -> str:
         return self._translator.translate(
             request.text,

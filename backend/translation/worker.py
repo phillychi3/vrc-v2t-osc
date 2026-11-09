@@ -7,10 +7,11 @@ import threading
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from backend.i18n import t
 from backend.translation.base import (
+    LocalTranslationProvider,
     TranslationProvider,
     TranslationProviderFactory,
     TranslationRequest,
@@ -76,6 +77,29 @@ class TranslationService:
             }
             for provider in self._factory.available()
         ]
+
+    def prepare(self, settings: dict[str, Any]) -> None:
+        """Load the enabled local translator before startup completes."""
+        info = self._factory.info(settings["provider"])
+        if not settings["enabled"] or info is None or not info.local:
+            return
+        options = self._factory.options_for(info.provider_id, settings)
+        key = self._provider_cache_key(info.provider_id, options)
+        with self._lock:
+            if key in self._ready_providers:
+                return
+            self._on_status(info.provider_id, "loading")
+            try:
+                provider = cast(
+                    LocalTranslationProvider,
+                    self._provider(info.provider_id, options, key),
+                )
+                provider.load()
+            except Exception:
+                self._on_status(info.provider_id, "failed")
+                raise
+            self._ready_providers.add(key)
+            self._on_status(info.provider_id, "ready")
 
     def submit(
         self,

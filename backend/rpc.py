@@ -104,17 +104,23 @@ class Commands:
                 system_languages if isinstance(system_languages, list) else None,
             )
             self._osc.configure(settings)
-            self._state.lifecycle = "ready"
-            ready_state = self.snapshot()
-
-        self._events.emit("backend.ready", ready_state)
         self._pipelines.replace(settings)
         if settings["emotion"]["enabled"]:
-            self._emotion.load_model()
+            self._emotion.load_model(wait=True)
         else:
             self._status.model("emotion", "not_loaded", None)
         self._overlay.configure(settings["overlay"])
         pipeline = self._pipelines.current
+        if pipeline is None or not pipeline.ready:
+            raise ServiceError("MODEL_LOAD_FAILED", t("backend.voice.notReady"))
+        if settings["emotion"]["enabled"] and not self._emotion.ready:
+            raise ServiceError("MODEL_LOAD_FAILED", t("startup.modelsFailed"))
+        try:
+            self._translation.prepare(settings["translation"])
+        except Exception as exc:
+            raise ServiceError("MODEL_LOAD_FAILED", str(exc), retryable=True) from exc
+        with self._state.lock:
+            self._state.lifecycle = "ready"
         if (
             settings["audio"]["autoStart"]
             and not self._state.suppress_auto_start
@@ -126,7 +132,9 @@ class Commands:
             except ServiceError as exc:
                 self._status.voice_error(str(exc))
         with self._state.lock:
-            return self.snapshot()
+            ready_state = self.snapshot()
+        self._events.emit("backend.ready", ready_state)
+        return self.snapshot()
 
     def get_state(self, _params: dict[str, Any]) -> object:
         with self._state.lock:

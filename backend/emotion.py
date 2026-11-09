@@ -45,18 +45,20 @@ class EmotionService:
         with self._lock:
             return self._ready
 
-    def load_model(self) -> None:
+    def load_model(self, *, wait: bool = False) -> None:
         with self._lock:
             if self._closed.is_set() or self._ready:
                 return
-            if self._load_thread and self._load_thread.is_alive():
-                return
-            self._load_thread = threading.Thread(
-                target=self._load_model,
-                name="emotion-model-loader",
-                daemon=True,
-            )
-            self._load_thread.start()
+            if not self._load_thread or not self._load_thread.is_alive():
+                self._load_thread = threading.Thread(
+                    target=self._load_model,
+                    name="emotion-model-loader",
+                    daemon=True,
+                )
+                self._load_thread.start()
+            loader = self._load_thread
+        if wait:
+            loader.join()
 
     def submit(self, utterance_id: str, text: str) -> bool:
         if self._closed.is_set() or not self.ready or not text.strip():

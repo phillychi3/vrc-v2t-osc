@@ -7,6 +7,7 @@
 		state,
 		translationAvailable = false,
 		translationStatus,
+		speechTranslation = false,
 		onToggleMicrophone,
 		onToggleSpeaker,
 		onToggleTranslation,
@@ -15,6 +16,7 @@
 		state: BackendState | null
 		translationAvailable?: boolean
 		translationStatus?: 'loading' | 'ready' | 'failed'
+		speechTranslation?: boolean
 		onToggleMicrophone: () => void
 		onToggleSpeaker: () => void
 		onToggleTranslation: () => void
@@ -48,7 +50,12 @@
 		if (value === 'stopping') return $t('home.stopping')
 		if (value === 'error') return $t('home.recordingError')
 		if (value === 'listening') return listening
-		return ready ? idle : $t('home.modelLoading')
+		if (ready) return idle
+		if (state?.models.speech?.status === 'failed')
+			return $t(speechTranslation ? 'home.audioUnavailable' : 'home.modelFailed')
+		if (state?.models.speech?.status === 'loading')
+			return $t(speechTranslation ? 'home.audioPreparing' : 'home.modelLoading')
+		return state ? $t('home.audioUnavailable') : $t('common.loading')
 	}
 
 	const translationDetail = $derived.by(() => {
